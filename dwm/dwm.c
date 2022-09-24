@@ -1376,9 +1376,11 @@ run(void)
 	XEvent ev;
 	/* main event loop */
 	XSync(dpy, False);
-	while (running && !XNextEvent(dpy, &ev))
+	while (running && !XNextEvent(dpy, &ev)) {
+        printf("%d\n", ev.type);
 		if (handler[ev.type])
 			handler[ev.type](&ev); /* call handler */
+    }
 }
 
 void
