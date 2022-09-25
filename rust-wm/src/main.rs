@@ -57,6 +57,45 @@ const ModKeyShift: u32 = ModKey | ShiftMask;
 
 fn main() {
     unsafe {
+        let events = vec![
+            "",
+            "",
+            "KeyPress",
+            "KeyRelease",
+            "ButtonPress",
+            "ButtonRelease",
+            "MotionNotify",
+            "EnterNotify",
+            "LeaveNotify",
+            "FocusIn",
+            "FocusOut",
+            "KeymapNotify",
+            "Expose",
+            "GraphicsExpose",
+            "NoExpose",
+            "VisibilityNotify",
+            "CreateNotify",
+            "DestroyNotify",
+            "UnmapNotify",
+            "MapNotify",
+            "MapRequest",
+            "ReparentNotify",
+            "ConfigureNotify",
+            "ConfigureRequest",
+            "GravityNotify",
+            "ResizeRequest",
+            "CirculateNotify",
+            "CirculateRequest",
+            "PropertyNotify",
+            "SelectionClear",
+            "SelectionRequest",
+            "SelectionNotify",
+            "ColormapNotify",
+            "ClientMessage",
+            "MappingNotify",
+            "GenericEvent",
+            "LASTEvent",
+        ];
         let dpy: *mut Display = XOpenDisplay(0x0 as *const i8);
         let mut attr: XWindowAttributes = get_default::XWindowAttributes();
         let mut start: XButtonEvent = get_default::XButtonEvent();
@@ -99,9 +138,9 @@ fn main() {
         start.subwindow = 0;
 
         loop {
-            // eprintln!("Getting event");
+            println!("|--Getting event");
             XNextEvent(dpy, get_mut_ptr(&mut ev));
-            // eprintln!("got event of type {}", ev.type_);
+            println!("  |--got event of type {}", events[ev.type_ as usize]);
             if ev.type_ == KeyPress {
                 if ev.key.state == ModKey {
                     if ev.key.keycode == get_keycode(dpy, XK_Return) {
@@ -125,11 +164,12 @@ fn main() {
             if ev.type_ == ButtonPress {
                 if ev.button.subwindow != 0 {
                     if ev.button.button == 2 {
-                        XRaiseWindow(dpy, ev.button.subwindow);
-                        XSetWindowBorderWidth(dpy, ev.button.subwindow, 5);
-                        XSetWindowBorder(dpy, ev.button.subwindow, {
-                            argb_to_int(0, 98, 114, 164)
-                        });
+                        let win = ev.button.subwindow;
+                        XRaiseWindow(dpy, win);
+                        XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
+                        // add window decoration
+                        XSetWindowBorderWidth(dpy, win, 2);
+                        XSetWindowBorder(dpy, win, argb_to_int(0, 98, 114, 164));
                     } else {
                         XGetWindowAttributes(
                             dpy,
@@ -187,55 +227,52 @@ fn main() {
             }
             if ev.type_ == CreateNotify {
                 let win = ev.create_window.window;
+
                 // get name
-                println!("|-- Getting name:");
-                let mut c: *mut i8 = get_mut_ptr(&mut 0);
-                XFetchName(dpy, win, get_mut_ptr(&mut c));
-                println!("  |-- Got name");
-                if !c.is_null() {
-                    println!("    |-- Name is {:?}", CStr::from_ptr(c).to_str());
+                let mut c: *mut i8 = null_mut();
+                if XFetchName(dpy, win, get_mut_ptr(&mut c)) == True {
+                    println!("|-- Got window name");
+                    println!("  |-- Name is {:?}", CStr::from_ptr(c).to_str());
                     libc::free(c as *mut libc::c_void);
                 } else {
-                    println!("    |-- Got null pointer");
+                    println!("|-- Failed to get window name");
                 }
-                // get attributes
-                // let mut a: XWindowAttributes = get_default::XWindowAttributes();
-                // XGetWindowAttributes(dpy, ev.create_window.window, get_mut_ptr(&mut a));
-                // println!("{:?}", a);
-                // XSetInputFocus(dpy, ev.create_window.window, RevertToParent, CurrentTime);
-                println!("|-- Getting properties:");
-                let mut atoms_count = 0;
-                let atoms = XListProperties(dpy, win, get_mut_ptr(&mut atoms_count));
-                println!("  |-- Got {} names", atoms_count);
-                for offset in 0..atoms_count {
-                    let atom = *atoms.offset(offset as isize);
-                    let atom_name: *mut i8 = XGetAtomName(dpy, atom);
-                    let mut text_property = XTextProperty {
-                        value: null_mut(),
-                        encoding: 0,
-                        format: 0,
-                        nitems: 0,
-                    };
-                    XGetTextProperty(dpy, win, get_mut_ptr(&mut text_property), atom);
-                    if !atom_name.is_null() {
-                        println!(
-                            "    |-- {:?} is {:?}",
-                            CStr::from_ptr(atom_name).to_str(),
-                            {
-                                let mut s: String = String::new();
-                                for o in 0..text_property.nitems {
-                                    s.push(*text_property.value.offset(o as isize) as char)
-                                }
-                                // CStr::from_ptr(text_property.value as *const i8).to_str()
-                                s
-                            }
-                        );
-                        XFree(atom_name as *mut libc::c_void);
-                    }
+
+                // get class
+                let ch = XAllocClassHint();
+                if XGetClassHint(dpy, win, ch) == True {
+                    println!("|-- Got window class");
+                    println!("  |-- name: {:?}", CStr::from_ptr((*ch).res_name).to_str());
+                    println!(
+                        "  |-- class: {:?}",
+                        CStr::from_ptr((*ch).res_class).to_str()
+                    );
+                    XFree((*ch).res_name as *mut libc::c_void);
+                    XFree((*ch).res_class as *mut libc::c_void);
+                } else {
+                    println!("|-- Failed to get window class");
                 }
-                XFree(atoms as *mut libc::c_void);
+            }
+            if ev.type_ == MapNotify {
+                let win = ev.map.window;
+
+                // place window on top of others
+                XRaiseWindow(dpy, win);
+
+                // focus on window
+                let mut attr = get_default::XWindowAttributes();
+                XGetWindowAttributes(dpy, win, get_mut_ptr(&mut attr));
+                if attr.map_state == IsViewable {
+                    println!("Window is viewable");
+                    XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
+                } else {
+                    println!("Window is NOT viewable");
+                }
+
+                // add window decoration
+                XSetWindowBorderWidth(dpy, win, 2);
+                XSetWindowBorder(dpy, win, argb_to_int(0, 98, 114, 164));
             }
         }
-        eprintln!("FUCK");
     }
 }
