@@ -19,7 +19,6 @@ fn get_keycode(dpy: *mut Display, keysym: u32) -> u32 {
 
 // What the fuck is going on here
 fn argb_to_int(a: u32, r: u8, g: u8, b: u8) -> u64 {
-    // (((r as u64) << 16 | (g as u64) << 8 | (b as u64)) & 0x00000000_00ffffff) | (a << 24) as u64;
     (a as u64) << 24 | (r as u64) << 16 | (g as u64) << 8 | (b as u64)
 }
 
@@ -28,6 +27,7 @@ use Mod1Mask as ModKey;
 const ModKeyShift: u32 = ModKey | ShiftMask;
 
 fn main() {
+    println!("Started Window Manager");
     unsafe {
         let events = vec![
             "",
@@ -68,35 +68,40 @@ fn main() {
             "GenericEvent",
             "LASTEvent",
         ];
+
+        println!("|- Created Event Look-Up Array");
+
         let dpy: *mut Display = XOpenDisplay(0x0 as *const i8);
+
+        println!("|- Opened X Display");
+
         let mut attr: XWindowAttributes = get_default::XWindowAttributes();
         let mut start: XButtonEvent = get_default::XButtonEvent();
+        start.subwindow = 0;
         let mut ev: XEvent = get_default::XEvent();
+        let _win_stack: Vec<u64> = Vec::new();
+        let mut win;
 
-        let mut wa: XSetWindowAttributes = XSetWindowAttributes {
-            background_pixmap: 0,
-            background_pixel: 0,
-            border_pixmap: 0,
-            border_pixel: 0,
-            bit_gravity: 0,
-            win_gravity: 0,
-            backing_store: 0,
-            backing_planes: 0,
-            backing_pixel: 0,
-            save_under: 0,
-            event_mask: 0,
-            do_not_propagate_mask: 0,
-            override_redirect: 0,
-            colormap: 0,
-            cursor: 0,
-        };
+        println!("|- Created Useful Variables");
+
+        let mut wa = get_default::XSetWindowAttributes();
         wa.event_mask = LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
+        // wa.event_mask = SubstructureRedirectMask | SubstructureNotifyMask |
+        //                 ButtonPressMask | PointerMotionMask | EnterWindowMask |
+        //                 LeaveWindowMask | StructureNotifyMask | PropertyChangeMask;
+
+        // wa.event_mask = SubstructureNotifyMask | KeyPressMask | KeyReleaseMask |
+        //                 ButtonPressMask | PointerMotionMask | EnterWindowMask |
+        //                 LeaveWindowMask | StructureNotifyMask | PropertyChangeMask;
         XChangeWindowAttributes(
             dpy,
             XDefaultRootWindow(dpy),
             CWEventMask | CWCursor,
             get_mut_ptr(&mut wa),
         );
+        XSelectInput(dpy, XDefaultRootWindow(dpy), wa.event_mask);
+
+        println!("|- Applied Event Mask");
 
         grab_key(dpy, XK_Return, ModKey | ShiftMask); // Move to top
         grab_key(dpy, XK_Return, ModKey); // Spawn alacritty
@@ -109,26 +114,32 @@ fn main() {
         grab_button(dpy, 2, Mod1Mask); // Focus window
         grab_button(dpy, 3, Mod1Mask); // Resize window
 
-        let _win_stack: Vec<u64> = Vec::new();
-        start.subwindow = 0;
-        let mut win: u64 = 0;
+        println!("|- Grabbed Shortcuts");
 
+        println!("|- Default Root Window Id Is: {}", XDefaultRootWindow(dpy));
+
+        println!("|- Starting Main Loop");
         loop {
-            println!("|--Getting event");
             XNextEvent(dpy, get_mut_ptr(&mut ev));
-            println!("  |--got event of type {}", events[ev.type_ as usize]);
+            println!("   |- Got Event Of Type \"{}\"", events[ev.type_ as usize]);
+
             if ev.type_ == KeyPress {
+                win = ev.key.window;
+
                 if ev.key.state == ModKey {
                     if ev.key.keycode == get_keycode(dpy, XK_Return) {
+                        println!("   |- Spawning Terminal");
                         let mut handle = Command::new("kitty").spawn().expect("can't run kitty");
                         std::thread::spawn(move || {
                             handle.wait().expect("can't run process");
                         });
                     }
                     if ev.key.keycode == get_keycode(dpy, XK_p) {
+                        println!("   |- Spawning Dmenu");
                         Command::new("dmenu_run").spawn().unwrap().wait().unwrap();
                     }
                     if ev.key.keycode == get_keycode(dpy, XK_Page_Up) {
+                        println!("   |- Maximazing Window: {win}");
                         XMoveResizeWindow(dpy, win, 0, 0, 1920, 1080);
                         XSetWindowBorderWidth(dpy, win, 0);
                     }
@@ -136,27 +147,32 @@ fn main() {
                 if ev.key.state == ModKeyShift {
                     if ev.key.keycode == get_keycode(dpy, XK_Return) {
                         if ev.key.subwindow != 0 {
+                            println!("   |- Maximazing Window: {win}");
                             XRaiseWindow(dpy, ev.key.subwindow);
                         }
                     }
                     if ev.key.keycode == get_keycode(dpy, XK_C) {
+                        println!("   |- Killing Window: {win}");
                         XDestroyWindow(dpy, win);
                     };
                     if ev.key.keycode == get_keycode(dpy, XK_Q) {
+                        println!("   |- Exiting Window Manager");
                         break;
                     }
                 }
             }
             if ev.type_ == ButtonPress {
+                win = ev.button.subwindow;
                 if ev.button.subwindow != 0 {
                     if ev.button.button == 2 {
-                        win = ev.button.subwindow;
+                        println!("   |- Selecting Window: {win}");
                         XRaiseWindow(dpy, win);
                         XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
                         // add window decoration
                         XSetWindowBorderWidth(dpy, win, 2);
                         XSetWindowBorder(dpy, win, argb_to_int(0, 98, 114, 164));
                     } else {
+                        println!("   |- Started Grabbing Window: {win}");
                         XGetWindowAttributes(
                             dpy,
                             ev.button.subwindow,
@@ -167,7 +183,12 @@ fn main() {
                 }
             }
             if ev.type_ == MotionNotify {
+                win = ev.motion.window;
+
+                println!("   |- Window id: {win}");
+
                 if ev.button.subwindow != 0 && start.subwindow != 0 {
+                    println!("   |- Resizing OR Moving Window");
                     let x_diff = ev.button.x_root - start.x_root;
                     let y_diff = ev.button.y_root - start.y_root;
                     XMoveResizeWindow(
@@ -207,40 +228,51 @@ fn main() {
                         ),
                     );
                 }
+                else {
+                    println!("   |- Just Moving");
+                    // XSetInputFocus(dpy, win, RevertToNone, CurrentTime);
+                }
             }
             if ev.type_ == ButtonRelease {
                 start.subwindow = 0;
             }
             if ev.type_ == CreateNotify {
-                println!("|-- New Window Created!");
                 win = ev.create_window.window;
-                
+                println!("   |- New Window with id: {win} Created!");
+
+                // XMoveResizeWindow(dpy, win, 0, 0, 1920, 1080);
+
+                let mut wa = get_default::XSetWindowAttributes(); 
+                wa.event_mask = LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
+
+                XChangeWindowAttributes(dpy, win, CWEventMask | CWCursor, get_mut_ptr(&mut wa));
+
                 // get name
                 let mut c: *mut i8 = null_mut();
                 if XFetchName(dpy, win, get_mut_ptr(&mut c)) == True {
-                    println!("  |-- Got window name");
-                    println!("      |-- Name is {:?}", CStr::from_ptr(c).to_str());
+                    println!("      |- Got window name: {:?}", CStr::from_ptr(c).to_str());
                     libc::free(c as *mut libc::c_void);
                 } else {
-                    println!("  |-- Failed to get window name");
+                    println!("      |- Failed to get window name");
                 }
                 // get class
                 let ch = XAllocClassHint();
                 if XGetClassHint(dpy, win, ch) == True {
-                    println!("  |-- Got window class");
-                    println!("      |-- name: {:?}", CStr::from_ptr((*ch).res_name).to_str());
-                    println!(
-                            "      |-- class: {:?}",
+                    println!("      |- Got window class");
+                    println!("         |- name: {:?}", CStr::from_ptr((*ch).res_name).to_str());
+                    println!("         |- class: {:?}",
                         CStr::from_ptr((*ch).res_class).to_str()
                     );
                     XFree((*ch).res_name as *mut libc::c_void);
                     XFree((*ch).res_class as *mut libc::c_void);
                 } else {
-                    println!("  |-- Failed to get window class");
+                    println!("      |- Failed To Get Window Class");
                 }
             }
-            if ev.type_ == MapNotify && false {
+            if ev.type_ == MapNotify {
                 win = ev.map.window;
+
+                println!("   |- Notify From Window: {win}");
 
                 // place window on top of others
                 XRaiseWindow(dpy, win);
@@ -249,15 +281,48 @@ fn main() {
                 let mut attr = get_default::XWindowAttributes();
                 XGetWindowAttributes(dpy, win, get_mut_ptr(&mut attr));
                 if attr.map_state == IsViewable {
-                    println!("Window is viewable");
-                    XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
+                    println!("      |- Window is viewable");
+                    // XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
                 } else {
-                    println!("Window is NOT viewable");
+                    println!("      |- Window is NOT viewable");
                 }
 
                 // add window decoration
                 XSetWindowBorderWidth(dpy, win, 2);
                 XSetWindowBorder(dpy, win, argb_to_int(0, 98, 114, 164));
+            }
+
+            if ev.type_ == EnterNotify {
+                win  = ev.crossing.window;
+
+                println!("      |- Window Id: {}", win);
+
+                let mut c: *mut i8 = null_mut();
+                if XFetchName(dpy, win, get_mut_ptr(&mut c)) == True {
+                    println!("         |- Got Window Name: {:?}", CStr::from_ptr(c).to_str());
+                    libc::free(c as *mut libc::c_void);
+                } else {
+                    println!("         |- Failed to get window name");
+                }
+
+                println!("         |- Raising window");
+                XRaiseWindow(dpy, win);
+
+                println!("         |- Setting focus to window");
+                XSetInputFocus(dpy, win, RevertToNone, CurrentTime);
+            }
+            if ev.type_ == LeaveNotify {
+                win = ev.crossing.window;
+
+                println!("      |- Window id: {}", win);
+
+                //let mut c: *mut i8 = null_mut();
+                //if XFetchName(dpy, win, get_mut_ptr(&mut c)) == True {
+                //    println!("         |- Got window name: {:?}", CStr::from_ptr(c).to_str());
+                //    libc::free(c as *mut libc::c_void);
+                //} else {
+                //    println!("         |- Failed to get window name");
+                //}
             }
         }
     }
