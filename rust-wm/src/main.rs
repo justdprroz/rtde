@@ -80,7 +80,7 @@ fn main() {
         start.subwindow = 0;
         let mut ev: XEvent = get_default::XEvent();
         let _win_stack: Vec<u64> = Vec::new();
-        let mut win;
+        let mut current_win = 0;
 
         println!("|- Created Useful Variables");
 
@@ -124,7 +124,7 @@ fn main() {
             println!("   |- Got Event Of Type \"{}\"", events[ev.type_ as usize]);
 
             if ev.type_ == KeyPress {
-                win = ev.key.window;
+                let _ew = ev.key.window;
 
                 if ev.key.state == ModKey {
                     if ev.key.keycode == get_keycode(dpy, XK_Return) {
@@ -139,21 +139,21 @@ fn main() {
                         Command::new("dmenu_run").spawn().unwrap().wait().unwrap();
                     }
                     if ev.key.keycode == get_keycode(dpy, XK_Page_Up) {
-                        println!("   |- Maximazing Window: {win}");
-                        XMoveResizeWindow(dpy, win, 0, 0, 1920, 1080);
-                        XSetWindowBorderWidth(dpy, win, 0);
+                        println!("   |- Maximazing Window: {current_win}");
+                        XMoveResizeWindow(dpy, current_win, 0, 0, 1920, 1080);
+                        XSetWindowBorderWidth(dpy, current_win, 0);
                     }
                 }
                 if ev.key.state == ModKeyShift {
                     if ev.key.keycode == get_keycode(dpy, XK_Return) {
                         if ev.key.subwindow != 0 {
-                            println!("   |- Maximazing Window: {win}");
+                            println!("   |- Maximazing Window: {current_win}");
                             XRaiseWindow(dpy, ev.key.subwindow);
                         }
                     }
                     if ev.key.keycode == get_keycode(dpy, XK_C) {
-                        println!("   |- Killing Window: {win}");
-                        XDestroyWindow(dpy, win);
+                        println!("   |- Killing Window: {current_win}");
+                        XKillClient(dpy, current_win);
                     };
                     if ev.key.keycode == get_keycode(dpy, XK_Q) {
                         println!("   |- Exiting Window Manager");
@@ -162,17 +162,17 @@ fn main() {
                 }
             }
             if ev.type_ == ButtonPress {
-                win = ev.button.subwindow;
+                let ew = ev.button.subwindow;
                 if ev.button.subwindow != 0 {
                     if ev.button.button == 2 {
-                        println!("   |- Selecting Window: {win}");
-                        XRaiseWindow(dpy, win);
-                        XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
+                        println!("   |- Selecting Window: {ew}");
+                        XRaiseWindow(dpy, ew);
+                        XSetInputFocus(dpy, ew, RevertToParent, CurrentTime);
                         // add window decoration
-                        XSetWindowBorderWidth(dpy, win, 2);
-                        XSetWindowBorder(dpy, win, argb_to_int(0, 98, 114, 164));
+                        XSetWindowBorderWidth(dpy, ew, 2);
+                        XSetWindowBorder(dpy, ew, argb_to_int(0, 98, 114, 164));
                     } else {
-                        println!("   |- Started Grabbing Window: {win}");
+                        println!("   |- Started Grabbing Window: {ew}");
                         XGetWindowAttributes(
                             dpy,
                             ev.button.subwindow,
@@ -183,9 +183,9 @@ fn main() {
                 }
             }
             if ev.type_ == MotionNotify {
-                win = ev.motion.window;
+                let ew = ev.motion.window;
 
-                println!("   |- Window id: {win}");
+                println!("   |- Window id: {ew}");
 
                 if ev.button.subwindow != 0 && start.subwindow != 0 {
                     println!("   |- Resizing OR Moving Window");
@@ -237,19 +237,18 @@ fn main() {
                 start.subwindow = 0;
             }
             if ev.type_ == CreateNotify {
-                win = ev.create_window.window;
-                println!("   |- New Window with id: {win} Created!");
+                let ew = ev.create_window.window;
+                println!("   |- New Window with id: {ew} Created!");
 
                 // XMoveResizeWindow(dpy, win, 0, 0, 1920, 1080);
 
                 let mut wa = get_default::XSetWindowAttributes(); 
                 wa.event_mask = LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
-
-                XChangeWindowAttributes(dpy, win, CWEventMask | CWCursor, get_mut_ptr(&mut wa));
+                XChangeWindowAttributes(dpy, ew, CWEventMask | CWCursor, get_mut_ptr(&mut wa));
 
                 // get name
                 let mut c: *mut i8 = null_mut();
-                if XFetchName(dpy, win, get_mut_ptr(&mut c)) == True {
+                if XFetchName(dpy, ew, get_mut_ptr(&mut c)) == True {
                     println!("      |- Got window name: {:?}", CStr::from_ptr(c).to_str());
                     libc::free(c as *mut libc::c_void);
                 } else {
@@ -257,7 +256,7 @@ fn main() {
                 }
                 // get class
                 let ch = XAllocClassHint();
-                if XGetClassHint(dpy, win, ch) == True {
+                if XGetClassHint(dpy, ew, ch) == True {
                     println!("      |- Got window class");
                     println!("         |- name: {:?}", CStr::from_ptr((*ch).res_name).to_str());
                     println!("         |- class: {:?}",
@@ -268,18 +267,19 @@ fn main() {
                 } else {
                     println!("      |- Failed To Get Window Class");
                 }
+                current_win = ew;
             }
             if ev.type_ == MapNotify {
-                win = ev.map.window;
+                let ew = ev.map.window;
 
-                println!("   |- Notify From Window: {win}");
+                println!("   |- Notify From Window: {ew}");
 
                 // place window on top of others
-                XRaiseWindow(dpy, win);
+                // XRaiseWindow(dpy, win);
 
                 // focus on window
                 let mut attr = get_default::XWindowAttributes();
-                XGetWindowAttributes(dpy, win, get_mut_ptr(&mut attr));
+                XGetWindowAttributes(dpy, ew, get_mut_ptr(&mut attr));
                 if attr.map_state == IsViewable {
                     println!("      |- Window is viewable");
                     // XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
@@ -288,17 +288,17 @@ fn main() {
                 }
 
                 // add window decoration
-                XSetWindowBorderWidth(dpy, win, 2);
-                XSetWindowBorder(dpy, win, argb_to_int(0, 98, 114, 164));
+                XSetWindowBorderWidth(dpy, ew, 2);
+                XSetWindowBorder(dpy, ew, argb_to_int(0, 98, 114, 164));
             }
 
             if ev.type_ == EnterNotify {
-                win  = ev.crossing.window;
+                let ew  = ev.crossing.window;
 
-                println!("      |- Window Id: {}", win);
+                println!("      |- Window Id: {}", ew);
 
                 let mut c: *mut i8 = null_mut();
-                if XFetchName(dpy, win, get_mut_ptr(&mut c)) == True {
+                if XFetchName(dpy, ew, get_mut_ptr(&mut c)) == True {
                     println!("         |- Got Window Name: {:?}", CStr::from_ptr(c).to_str());
                     libc::free(c as *mut libc::c_void);
                 } else {
@@ -306,15 +306,17 @@ fn main() {
                 }
 
                 println!("         |- Raising window");
-                XRaiseWindow(dpy, win);
+                XRaiseWindow(dpy, ew);
 
                 println!("         |- Setting focus to window");
-                XSetInputFocus(dpy, win, RevertToNone, CurrentTime);
+                XSetInputFocus(dpy, ew, RevertToNone, CurrentTime);
+
+                current_win = ew;
             }
             if ev.type_ == LeaveNotify {
-                win = ev.crossing.window;
+                let ew = ev.crossing.window;
 
-                println!("      |- Window id: {}", win);
+                println!("      |- Window id: {}", ew);
 
                 //let mut c: *mut i8 = null_mut();
                 //if XFetchName(dpy, win, get_mut_ptr(&mut c)) == True {
