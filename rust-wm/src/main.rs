@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
+#![allow(dead_code)]
+
 use core::ffi::CStr;
 use std::{process::Command, ptr::null_mut};
 use x11::{keysym::*, xlib::*};
@@ -79,7 +81,7 @@ fn main() {
         let mut start: XButtonEvent = get_default::XButtonEvent();
         start.subwindow = 0;
         let mut ev: XEvent = get_default::XEvent();
-        let _win_stack: Vec<u64> = Vec::new();
+        let mut _win_stack: Vec<u64> = Vec::new();
         let mut current_win = 0;
 
         println!("|- Created Useful Variables");
@@ -109,6 +111,7 @@ fn main() {
         grab_key(dpy, XK_p, ModKey); // Run dmenu
         grab_key(dpy, XK_Page_Up, ModKey); // maximize window
         grab_key(dpy, XK_C, ModKey | ShiftMask); // close window
+        grab_key(dpy, XK_Tab, ModKey); // Cycle Through Windows
 
         grab_button(dpy, 1, Mod1Mask); // Move window
         grab_button(dpy, 2, Mod1Mask); // Focus window
@@ -143,14 +146,13 @@ fn main() {
                         XMoveResizeWindow(dpy, current_win, 0, 0, 1920, 1080);
                         XSetWindowBorderWidth(dpy, current_win, 0);
                     }
+
+                    if ev.key.keycode == get_keycode(dpy, XK_Tab) {
+                        println!("   |- Cycling to previous windows...(Hopefully)");
+                        println!("   |- Current stack is {:?}", _win_stack);
+                    };
                 }
                 if ev.key.state == ModKeyShift {
-                    if ev.key.keycode == get_keycode(dpy, XK_Return) {
-                        if ev.key.subwindow != 0 {
-                            println!("   |- Maximazing Window: {current_win}");
-                            XRaiseWindow(dpy, ev.key.subwindow);
-                        }
-                    }
                     if ev.key.keycode == get_keycode(dpy, XK_C) {
                         println!("   |- Killing Window: {current_win}");
                         XKillClient(dpy, current_win);
@@ -169,8 +171,8 @@ fn main() {
                         XRaiseWindow(dpy, ew);
                         XSetInputFocus(dpy, ew, RevertToParent, CurrentTime);
                         // add window decoration
-                        XSetWindowBorderWidth(dpy, ew, 2);
-                        XSetWindowBorder(dpy, ew, argb_to_int(0, 98, 114, 164));
+                        // XSetWindowBorderWidth(dpy, ew, 2);
+                        // XSetWindowBorder(dpy, ew, argb_to_int(0, 98, 114, 164));
                     } else {
                         println!("   |- Started Grabbing Window: {ew}");
                         XGetWindowAttributes(
@@ -268,6 +270,7 @@ fn main() {
                     println!("      |- Failed To Get Window Class");
                 }
                 current_win = ew;
+                _win_stack.push(ew);
             }
             if ev.type_ == MapNotify {
                 let ew = ev.map.window;
@@ -288,8 +291,8 @@ fn main() {
                 }
 
                 // add window decoration
-                XSetWindowBorderWidth(dpy, ew, 2);
-                XSetWindowBorder(dpy, ew, argb_to_int(0, 98, 114, 164));
+                // XSetWindowBorderWidth(dpy, ew, 2);
+                // XSetWindowBorder(dpy, ew, argb_to_int(0, 98, 114, 164));
             }
 
             if ev.type_ == EnterNotify {
@@ -305,8 +308,8 @@ fn main() {
                     println!("         |- Failed to get window name");
                 }
 
-                println!("         |- Raising window");
-                XRaiseWindow(dpy, ew);
+                // println!("         |- Raising window");
+                // XRaiseWindow(dpy, ew);
 
                 println!("         |- Setting focus to window");
                 XSetInputFocus(dpy, ew, RevertToNone, CurrentTime);
