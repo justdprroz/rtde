@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 use core::ffi::CStr;
+use std::ffi::CString;
 use std::{process::Command, ptr::null_mut};
 use x11::{keysym::*, xlib::*};
 
@@ -87,7 +88,10 @@ fn main() {
         println!("|- Created Useful Variables");
 
         let mut wa = get_default::XSetWindowAttributes();
-        wa.event_mask = LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
+
+        // wa.event_mask = LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
+        wa.event_mask = SubstructureRedirectMask | LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
+
         // wa.event_mask = SubstructureRedirectMask | SubstructureNotifyMask |
         //                 ButtonPressMask | PointerMotionMask | EnterWindowMask |
         //                 LeaveWindowMask | StructureNotifyMask | PropertyChangeMask;
@@ -95,6 +99,13 @@ fn main() {
         // wa.event_mask = SubstructureNotifyMask | KeyPressMask | KeyReleaseMask |
         //                 ButtonPressMask | PointerMotionMask | EnterWindowMask |
         //                 LeaveWindowMask | StructureNotifyMask | PropertyChangeMask;
+
+        let p = CString::new("WM_PROTOCOLS").unwrap();
+
+        let a: Atom = XInternAtom(dpy, p.as_ptr(), False);
+
+        println!("Atom is: {:#?}", a);
+
         XChangeWindowAttributes(
             dpy,
             XDefaultRootWindow(dpy),
@@ -238,7 +249,7 @@ fn main() {
             if ev.type_ == ButtonRelease {
                 start.subwindow = 0;
             }
-            if ev.type_ == CreateNotify {
+            if ev.type_ == CreateNotify && false {
                 let ew = ev.create_window.window;
                 println!("   |- New Window with id: {ew} Created!");
 
@@ -272,27 +283,58 @@ fn main() {
                 current_win = ew;
                 _win_stack.push(ew);
             }
-            if ev.type_ == MapNotify {
-                let ew = ev.map.window;
+            if ev.type_ == MapRequest {
+                let ew = ev.map_request.window;
+                println!("   |- Request From Window: {ew}");
 
-                println!("   |- Notify From Window: {ew}");
+                let mut wa = get_default::XSetWindowAttributes(); 
+                wa.event_mask = LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
+                XChangeWindowAttributes(dpy, ew, CWEventMask | CWCursor, get_mut_ptr(&mut wa));
 
-                // place window on top of others
-                // XRaiseWindow(dpy, win);
+                // get name
+                let mut c: *mut i8 = null_mut();
+                if XFetchName(dpy, ew, get_mut_ptr(&mut c)) == True {
+                    println!("      |- Got window name: {:?}", CStr::from_ptr(c).to_str());
+                    libc::free(c as *mut libc::c_void);
+                } else {
+                    println!("      |- Failed to get window name");
+                }
+                // get class
+                let ch = XAllocClassHint();
+                if XGetClassHint(dpy, ew, ch) == True {
+                    println!("      |- Got window class");
+                    println!("         |- name: {:?}", CStr::from_ptr((*ch).res_name).to_str());
+                    println!("         |- class: {:?}",
+                        CStr::from_ptr((*ch).res_class).to_str()
+                    );
+                    XFree((*ch).res_name as *mut libc::c_void);
+                    XFree((*ch).res_class as *mut libc::c_void);
+                } else {
+                    println!("      |- Failed To Get Window Class");
+                }
 
                 // focus on window
-                let mut attr = get_default::XWindowAttributes();
-                XGetWindowAttributes(dpy, ew, get_mut_ptr(&mut attr));
-                if attr.map_state == IsViewable {
-                    println!("      |- Window is viewable");
-                    // XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
-                } else {
-                    println!("      |- Window is NOT viewable");
-                }
+                // let mut attr = get_default::XWindowAttributes();
+                // XGetWindowAttributes(dpy, ew, get_mut_ptr(&mut attr));
+                // if attr.map_state == IsViewable {
+                //     println!("      |- Window is viewable");
+                //     // XSetInputFocus(dpy, win, RevertToParent, CurrentTime);
+                // } else {
+                //     println!("      |- Window is NOT viewable");
+                // }
 
                 // add window decoration
                 // XSetWindowBorderWidth(dpy, ew, 2);
                 // XSetWindowBorder(dpy, ew, argb_to_int(0, 98, 114, 164));
+
+                current_win = ew;
+                _win_stack.push(ew);
+
+                XRaiseWindow(dpy, ew);
+
+                XMoveResizeWindow(dpy, ew, 0, 0, 1920, 1080);
+
+                XMapWindow(dpy, ew);
             }
 
             if ev.type_ == EnterNotify {
