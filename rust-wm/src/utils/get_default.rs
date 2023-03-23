@@ -1,5 +1,5 @@
 use std::ptr::null_mut;
-use x11::xlib::{XButtonEvent, XEvent, XWindowAttributes, XSetWindowAttributes};
+use x11::xlib::{XButtonEvent, XEvent, XSetWindowAttributes, XWindowAttributes};
 
 pub fn XWindowAttributes() -> XWindowAttributes {
     XWindowAttributes {

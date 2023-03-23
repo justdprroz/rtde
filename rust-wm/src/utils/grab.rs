@@ -30,4 +30,3 @@ pub fn grab_button(dpy: *mut Display, button: u32, mask: u32) {
         );
     }
 }
-
