@@ -1,1 +1,2 @@
-cargo build --release; scp target/release/rust-wm $1:
+cargo build --release;
+sudo cp -f ./target/release/rust-wm /usr/local/bin
