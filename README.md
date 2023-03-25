@@ -5,7 +5,7 @@
 ## Shortcuts
 ```ModKey = Mod1Key = Alt```
 - ```ModKey + Shift + Enter``` - Move current window to top
-- ```ModKey + Enter``` - Spawn terminal ```alacritty```
+- ```ModKey + Enter``` - Spawn terminal ```kitty```
 - ```ModKey + Shift + Q``` - Exit window manager
 - ```ModKey + p``` - Spawn application launcher ```dmenu```
 - ```ModKey + PageUp``` - Maximaze current window
