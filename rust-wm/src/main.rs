@@ -3,7 +3,10 @@
 #![allow(dead_code)]
 
 use core::ffi::CStr;
+use std::iter::Enumerate;
 use std::{process::Command, ptr::null_mut};
+use libc::c_ulong;
+use x11::xinerama::XineramaQueryScreens;
 use x11::{keysym::*, xlib::*};
 
 mod utils;
@@ -89,6 +92,16 @@ fn main() {
 
         println!("|- Opened X Display");
 
+        println!("|- Getting per monitor sizes");
+
+        let mut nn: i32 = 0;
+        let info = XineramaQueryScreens(dpy, get_mut_ptr(&mut nn));
+        println!("|- There are {} screen connected", nn);
+        let screens = std::slice::from_raw_parts_mut(info, nn as usize);
+        for screen in screens {
+            println!("|- Screen {} has size of {}x{} pixels and originates from {},{}", screen.screen_number, screen.width, screen.height, screen.x_org, screen.y_org);
+        };
+
         let mut attr: XWindowAttributes = get_default::XWindowAttributes();
         let mut start: XButtonEvent = get_default::XButtonEvent();
         start.subwindow = 0;
@@ -109,14 +122,6 @@ fn main() {
             | SubstructureNotifyMask
             | StructureNotifyMask;
 
-        // wa.event_mask = SubstructureRedirectMask | SubstructureNotifyMask |
-        //                 ButtonPressMask | PointerMotionMask | EnterWindowMask |
-        //                 LeaveWindowMask | StructureNotifyMask | PropertyChangeMask;
-
-        // wa.event_mask = SubstructureNotifyMask | KeyPressMask | KeyReleaseMask |
-        //                 ButtonPressMask | PointerMotionMask | EnterWindowMask |
-        //                 LeaveWindowMask | StructureNotifyMask | PropertyChangeMask;
-
         XChangeWindowAttributes(
             dpy,
             XDefaultRootWindow(dpy),
@@ -126,6 +131,32 @@ fn main() {
         XSelectInput(dpy, XDefaultRootWindow(dpy), wa.event_mask);
 
         println!("|- Applied Event Mask");
+
+        let mut nums: u32 = 0;
+        let mut d1: c_ulong = 0;
+        let mut d2: c_ulong = 0;
+        let mut wins: *mut c_ulong = null_mut();
+
+        XQueryTree(dpy, XDefaultRootWindow(dpy), get_mut_ptr(&mut d1), get_mut_ptr(&mut d2), get_mut_ptr(&mut wins), get_mut_ptr(&mut nums));
+
+        println!("|- {nums} windows are alredy present");
+
+        let mut wins = std::slice::from_raw_parts_mut(wins, nums as usize);
+        for win in wins {
+            println!("|-- Checking window {win}");
+            let mut wa = get_default::XWindowAttributes();
+            if XGetWindowAttributes(dpy, *win, get_mut_ptr(&mut wa)) == 0 || wa.override_redirect != 0 || XGetTransientForHint(dpy, *win, get_mut_ptr(&mut d1)) != 0{
+                println!("|---- Window is transient. Skipping");
+                continue;
+            }
+            if wa.map_state == IsViewable {
+                println!("|---- Window is viewable. Managing");
+                current_win = *win;
+                client_index = Some(clients.len());
+                clients.push(*win);
+                XRaiseWindow(dpy, *win);
+            }
+        }
 
         grab_key(dpy, XK_Return, ModKey | ShiftMask); // Move to top
         grab_key(dpy, XK_Return, ModKey); // Spawn alacritty
@@ -171,10 +202,11 @@ fn main() {
                             println!("   |- Cycling to previous windows...(Hopefully)");
                             println!("   |- Current clients are {:?}", clients);
                             let index = client_index.unwrap();
-                            XMoveWindow(dpy, clients[index], -1920, -1080);
+                            // XMoveWindow(dpy, clients[index], -1920, -1080);
                             client_index  = Some((index + 1) % clients.len());
                             let index = client_index.unwrap();
-                            XMoveWindow(dpy, clients[index], 0, 0);
+                            XRaiseWindow(dpy, clients[index]);
+                            // XMoveWindow(dpy, clients[index], 0, 0);
                         } else {
                             println!("   |- No windows. Skipping")
                         }
