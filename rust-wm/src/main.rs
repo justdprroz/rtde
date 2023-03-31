@@ -3,7 +3,9 @@
 #![allow(dead_code)]
 
 use core::ffi::CStr;
+use libc::c_ulong;
 use std::{process::Command, ptr::null_mut};
+use x11::xinerama::XineramaQueryScreens;
 use x11::{keysym::*, xlib::*};
 
 mod utils;
@@ -24,6 +26,47 @@ fn get_keycode(dpy: *mut Display, keysym: u32) -> u32 {
 // What the fuck is going on here
 fn argb_to_int(a: u32, r: u8, g: u8, b: u8) -> u64 {
     (a as u64) << 24 | (r as u64) << 16 | (g as u64) << 8 | (b as u64)
+}
+
+unsafe fn manage_client(dpy: *mut Display, ew: u64, cw: &mut u64, ci: &mut Option<usize>, clients: &mut Vec<u64>) {
+    let mut wa: XSetWindowAttributes = get_default::XSetWindowAttributes();
+    wa.event_mask =
+        LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
+    XChangeWindowAttributes(dpy, ew, CWEventMask | CWCursor, get_mut_ptr(&mut wa));
+
+    // get name
+    let mut c: *mut i8 = null_mut();
+    if XFetchName(dpy, ew, get_mut_ptr(&mut c)) == True {
+        println!("      |- Got window name: {:?}", CStr::from_ptr(c).to_str());
+        libc::free(c as *mut libc::c_void);
+    } else {
+        println!("      |- Failed to get window name");
+    }
+    // get class
+    let ch: *mut XClassHint = XAllocClassHint();
+    if XGetClassHint(dpy, ew, ch) == True {
+        println!("      |- Got window class");
+        println!(
+            "         |- name: {:?}",
+            CStr::from_ptr((*ch).res_name).to_str()
+        );
+        println!(
+            "         |- class: {:?}",
+            CStr::from_ptr((*ch).res_class).to_str()
+        );
+        XFree((*ch).res_name as *mut libc::c_void);
+        XFree((*ch).res_class as *mut libc::c_void);
+    } else {
+        println!("      |- Failed To Get Window Class");
+    }
+
+    *cw = ew;
+    *ci = Some(clients.len());
+    clients.push(ew);
+
+    XRaiseWindow(dpy, ew);
+    XMoveResizeWindow(dpy, ew, 0, 0, 1920, 1080);
+    XMapWindow(dpy, ew);
 }
 
 fn get_event_names_list() -> Vec<&'static str> {
@@ -71,7 +114,7 @@ fn get_event_names_list() -> Vec<&'static str> {
 struct WindowInfo {}
 
 fn get_window_info(_win: u64) -> WindowInfo {
-    WindowInfo {  }
+    WindowInfo {}
 }
 
 use Mod1Mask as ModKey;
@@ -88,6 +131,19 @@ fn main() {
         let dpy: *mut Display = XOpenDisplay(0x0 as *const i8);
 
         println!("|- Opened X Display");
+
+        println!("|- Getting per monitor sizes");
+
+        let mut nn: i32 = 0;
+        let info = XineramaQueryScreens(dpy, get_mut_ptr(&mut nn));
+        println!("|- There are {} screen connected", nn);
+        let screens = std::slice::from_raw_parts_mut(info, nn as usize);
+        for screen in screens {
+            println!(
+                "|- Screen {} has size of {}x{} pixels and originates from {},{}",
+                screen.screen_number, screen.width, screen.height, screen.x_org, screen.y_org
+            );
+        }
 
         let mut attr: XWindowAttributes = get_default::XWindowAttributes();
         let mut start: XButtonEvent = get_default::XButtonEvent();
@@ -109,14 +165,6 @@ fn main() {
             | SubstructureNotifyMask
             | StructureNotifyMask;
 
-        // wa.event_mask = SubstructureRedirectMask | SubstructureNotifyMask |
-        //                 ButtonPressMask | PointerMotionMask | EnterWindowMask |
-        //                 LeaveWindowMask | StructureNotifyMask | PropertyChangeMask;
-
-        // wa.event_mask = SubstructureNotifyMask | KeyPressMask | KeyReleaseMask |
-        //                 ButtonPressMask | PointerMotionMask | EnterWindowMask |
-        //                 LeaveWindowMask | StructureNotifyMask | PropertyChangeMask;
-
         XChangeWindowAttributes(
             dpy,
             XDefaultRootWindow(dpy),
@@ -126,6 +174,39 @@ fn main() {
         XSelectInput(dpy, XDefaultRootWindow(dpy), wa.event_mask);
 
         println!("|- Applied Event Mask");
+
+        let mut nums: u32 = 0;
+        let mut d1: c_ulong = 0;
+        let mut d2: c_ulong = 0;
+        let mut wins: *mut c_ulong = null_mut();
+
+        XQueryTree(
+            dpy,
+            XDefaultRootWindow(dpy),
+            get_mut_ptr(&mut d1),
+            get_mut_ptr(&mut d2),
+            get_mut_ptr(&mut wins),
+            get_mut_ptr(&mut nums),
+        );
+
+        println!("|- {nums} windows are alredy present");
+
+        let wins = std::slice::from_raw_parts_mut(wins, nums as usize);
+        for win in wins {
+            println!("|-- Checking window {win}");
+            let mut wa = get_default::XWindowAttributes();
+            if XGetWindowAttributes(dpy, *win, get_mut_ptr(&mut wa)) == 0
+                || wa.override_redirect != 0
+                || XGetTransientForHint(dpy, *win, get_mut_ptr(&mut d1)) != 0
+            {
+                println!("|---- Window is transient. Skipping");
+                continue;
+            }
+            if wa.map_state == IsViewable {
+                println!("|---- Window is viewable. Managing");
+                manage_client(dpy, *win, &mut current_win, &mut client_index, &mut clients);
+            }
+        }
 
         grab_key(dpy, XK_Return, ModKey | ShiftMask); // Move to top
         grab_key(dpy, XK_Return, ModKey); // Spawn alacritty
@@ -171,10 +252,11 @@ fn main() {
                             println!("   |- Cycling to previous windows...(Hopefully)");
                             println!("   |- Current clients are {:?}", clients);
                             let index = client_index.unwrap();
-                            XMoveWindow(dpy, clients[index], -1920, -1080);
-                            client_index  = Some((index + 1) % clients.len());
+                            // XMoveWindow(dpy, clients[index], -1920, -1080);
+                            client_index = Some((index + 1) % clients.len());
                             let index = client_index.unwrap();
-                            XMoveWindow(dpy, clients[index], 0, 0);
+                            XRaiseWindow(dpy, clients[index]);
+                            // XMoveWindow(dpy, clients[index], 0, 0);
                         } else {
                             println!("   |- No windows. Skipping")
                         }
@@ -272,48 +354,8 @@ fn main() {
             }
             if ev.type_ == MapRequest {
                 let ew: u64 = ev.map_request.window;
+                manage_client(dpy, ew, &mut current_win, &mut client_index, &mut clients);
                 println!("   |- Request From Window: {ew}");
-
-                let mut wa: XSetWindowAttributes = get_default::XSetWindowAttributes();
-                wa.event_mask = LeaveWindowMask
-                    | EnterWindowMask
-                    | SubstructureNotifyMask
-                    | StructureNotifyMask;
-                XChangeWindowAttributes(dpy, ew, CWEventMask | CWCursor, get_mut_ptr(&mut wa));
-
-                // get name
-                let mut c: *mut i8 = null_mut();
-                if XFetchName(dpy, ew, get_mut_ptr(&mut c)) == True {
-                    println!("      |- Got window name: {:?}", CStr::from_ptr(c).to_str());
-                    libc::free(c as *mut libc::c_void);
-                } else {
-                    println!("      |- Failed to get window name");
-                }
-                // get class
-                let ch: *mut XClassHint = XAllocClassHint();
-                if XGetClassHint(dpy, ew, ch) == True {
-                    println!("      |- Got window class");
-                    println!(
-                        "         |- name: {:?}",
-                        CStr::from_ptr((*ch).res_name).to_str()
-                    );
-                    println!(
-                        "         |- class: {:?}",
-                        CStr::from_ptr((*ch).res_class).to_str()
-                    );
-                    XFree((*ch).res_name as *mut libc::c_void);
-                    XFree((*ch).res_class as *mut libc::c_void);
-                } else {
-                    println!("      |- Failed To Get Window Class");
-                }
-
-                current_win = ew;
-                client_index = Some(clients.len());
-                clients.push(ew);
-
-                XRaiseWindow(dpy, ew);
-                XMoveResizeWindow(dpy, ew, 0, 0, 1920, 1080);
-                XMapWindow(dpy, ew);
             }
 
             if ev.type_ == EnterNotify {
