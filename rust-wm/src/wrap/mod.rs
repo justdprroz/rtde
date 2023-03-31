@@ -1,4 +1,6 @@
 pub mod xlib {
+    use crate::utils::get_default::{XWindowAttributes, XEvent};
+
     pub fn XOpenDisplay(display_name: Option<&str>) -> Option<&mut x11::xlib::Display> {
         unsafe {
             let result = match display_name {
@@ -38,24 +40,28 @@ pub mod xlib {
 
     pub fn XQueryTree(display: &mut x11::xlib::Display, w: u64) -> (u64, u64, Vec<u64>) {
         unsafe {
-            let mut root_return: *mut u64 = 0 as *mut u64;
-            let mut parent_return: *mut u64 = 0 as *mut u64;
-            let mut nchildren_return: *mut u32 = 0 as *mut u32;
-            let mut children_return: *mut *mut u64 = 0 as *mut *mut u64;
+            let mut root_return: u64 = 0;
+            let mut parent_return: u64 = 0;
+            let mut nchildren_return: u32 = 0;
+            let mut children_return: *mut u64 = 0 as *mut u64;
+
+            println!("==== Created vars");
 
             x11::xlib::XQueryTree(
                 display as *mut x11::xlib::Display,
                 w,
-                root_return,
-                parent_return,
-                children_return,
-                nchildren_return,
+                &mut root_return as *mut u64,
+                &mut parent_return as *mut u64,
+                &mut children_return as *mut *mut u64,
+                &mut nchildren_return as *mut u32,
             );
+
+            println!("==== Got tree");
 
             (
                 0,
                 0,
-                std::slice::from_raw_parts_mut(*children_return, *nchildren_return as usize)
+                std::slice::from_raw_parts_mut(children_return, nchildren_return as usize)
                     .iter()
                     .map(|win| *win)
                     .collect(),
@@ -68,9 +74,9 @@ pub mod xlib {
         w: u64,
     ) -> Option<x11::xlib::XWindowAttributes> {
         unsafe {
-            let wa = 0 as *mut x11::xlib::XWindowAttributes;
-            if x11::xlib::XGetWindowAttributes(display as *mut x11::xlib::Display, w, wa) != 0 {
-                Some(*wa)
+            let mut wa: x11::xlib::XWindowAttributes = XWindowAttributes();
+            if x11::xlib::XGetWindowAttributes(display as *mut x11::xlib::Display, w, &mut wa as *mut x11::xlib::XWindowAttributes) != 0 {
+                Some(wa)
             } else {
                 None
             }
@@ -93,9 +99,9 @@ pub mod xlib {
 
     pub fn XNextEvent(display: &mut x11::xlib::Display) -> x11::xlib::XEvent {
         unsafe {
-            let ev = 0 as *mut x11::xlib::XEvent;
-            x11::xlib::XNextEvent(display as *mut x11::xlib::Display, ev);
-            *ev
+            let mut ev: x11::xlib::XEvent = XEvent();
+            x11::xlib::XNextEvent(display as *mut x11::xlib::Display, &mut ev as *mut x11::xlib::XEvent);
+            ev
         }
     }
 
@@ -162,13 +168,15 @@ pub mod xinerama {
     ) -> Option<Vec<x11::xinerama::XineramaScreenInfo>> {
         unsafe {
             let mut screens_amount: i32 = 0;
+            println!("====created var");
             match x11::xinerama::XineramaQueryScreens(
                 display as *mut x11::xlib::Display,
-                screens_amount as *mut i32,
+                &mut screens_amount as *mut i32,
             )
             .as_mut()
             {
                 Some(xqs) => {
+                    println!("==== got something");
                     Some(std::slice::from_raw_parts_mut(xqs, screens_amount as usize).to_vec())
                 }
                 None => None,
