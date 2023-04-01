@@ -151,8 +151,22 @@ use crate::wrap::xlib::set_window_border_width;
 
 const MOD_KEY_SHIFT: u32 = ModKey | x11::xlib::ShiftMask;
 
+fn setup() {
+
+}
+
+fn scan() {
+
+}
+
+fn run() {
+
+}
+
 fn main() {
-    println!("Started Window Manager");
+    // Create variables
+
+    // println!("Started Window Manager");
     //    unsafe {
     let events: Vec<&str> = get_event_names_list();
     println!("|- Created Event Look-Up Array");
