@@ -1,7 +1,7 @@
 pub mod xlib {
-    use crate::utils::get_default::{XWindowAttributes, XEvent};
+    use crate::utils::get_default::{XEvent, XWindowAttributes};
 
-    pub fn XOpenDisplay(display_name: Option<&str>) -> Option<&mut x11::xlib::Display> {
+    pub fn OpenDisplay(display_name: Option<&str>) -> Option<&mut x11::xlib::Display> {
         unsafe {
             let result = match display_name {
                 Some(dn) => {
@@ -14,11 +14,11 @@ pub mod xlib {
         }
     }
 
-    pub fn XDefaultRootWindow(display: &mut x11::xlib::Display) -> u64 {
+    pub fn DefaultRootWindow(display: &mut x11::xlib::Display) -> u64 {
         unsafe { x11::xlib::XDefaultRootWindow(display as *mut x11::xlib::Display) }
     }
 
-    pub fn XChangeWindowAttributes(
+    pub fn ChangeWindowAttributes(
         display: &mut x11::xlib::Display,
         w: u64,
         valuemask: u64,
@@ -34,11 +34,11 @@ pub mod xlib {
         }
     }
 
-    pub fn XSelectInput(display: &mut x11::xlib::Display, w: u64, event_mask: i64) -> i32 {
+    pub fn SelectInput(display: &mut x11::xlib::Display, w: u64, event_mask: i64) -> i32 {
         unsafe { x11::xlib::XSelectInput(display as *mut x11::xlib::Display, w, event_mask) }
     }
 
-    pub fn XQueryTree(display: &mut x11::xlib::Display, w: u64) -> (u64, u64, Vec<u64>) {
+    pub fn QueryTree(display: &mut x11::xlib::Display, w: u64) -> (u64, u64, Vec<u64>) {
         unsafe {
             let mut root_return: u64 = 0;
             let mut parent_return: u64 = 0;
@@ -69,13 +69,18 @@ pub mod xlib {
         }
     }
 
-    pub fn XGetWindowAttributes(
+    pub fn GetWindowAttributes(
         display: &mut x11::xlib::Display,
         w: u64,
     ) -> Option<x11::xlib::XWindowAttributes> {
         unsafe {
             let mut wa: x11::xlib::XWindowAttributes = XWindowAttributes();
-            if x11::xlib::XGetWindowAttributes(display as *mut x11::xlib::Display, w, &mut wa as *mut x11::xlib::XWindowAttributes) != 0 {
+            if x11::xlib::XGetWindowAttributes(
+                display as *mut x11::xlib::Display,
+                w,
+                &mut wa as *mut x11::xlib::XWindowAttributes,
+            ) != 0
+            {
                 Some(wa)
             } else {
                 None
@@ -83,7 +88,7 @@ pub mod xlib {
         }
     }
 
-    pub fn XGetTransientForHint(
+    pub fn GetTransientForHint(
         display: &mut x11::xlib::Display,
         w: u64,
         prop_window_return: &mut u64,
@@ -97,15 +102,39 @@ pub mod xlib {
         }
     }
 
-    pub fn XNextEvent(display: &mut x11::xlib::Display) -> x11::xlib::XEvent {
+    pub fn NextEvent(display: &mut x11::xlib::Display) -> Event {
         unsafe {
             let mut ev: x11::xlib::XEvent = XEvent();
-            x11::xlib::XNextEvent(display as *mut x11::xlib::Display, &mut ev as *mut x11::xlib::XEvent);
-            ev
+            x11::xlib::XNextEvent(
+                display as *mut x11::xlib::Display,
+                &mut ev as *mut x11::xlib::XEvent,
+            );
+            let mut event = Event::default();
+            event.type_ = ev.type_;
+            match ev.type_ {
+                x11::xlib::KeyPress | x11::xlib::KeyRelease => {
+                    event.key = Some(ev.key);
+                }
+                x11::xlib::ButtonPress | x11::xlib::ButtonRelease | x11::xlib::MotionNotify => {
+                    event.button = Some(ev.button);
+                    event.motion = Some(ev.motion);
+                }
+                x11::xlib::MapRequest => {
+                    event.map_request = Some(ev.map_request);
+                }
+                x11::xlib::EnterNotify | x11::xlib::LeaveNotify => {
+                    event.crossing = Some(ev.crossing);
+                }
+                x11::xlib::DestroyNotify => {
+                    event.destroy_window = Some(ev.destroy_window);
+                }
+                _ => {}
+            };
+            event
         }
     }
 
-    pub fn XMoveResizeWindow(
+    pub fn MoveResizeWindow(
         display: &mut x11::xlib::Display,
         w: u64,
         x: i32,
@@ -125,40 +154,51 @@ pub mod xlib {
         }
     }
 
-    pub fn XSetWindowBorderWidth(display: &mut x11::xlib::Display, w: u64, width: u32) {
+    pub fn SetWindowBorderWidth(display: &mut x11::xlib::Display, w: u64, width: u32) {
         unsafe {
             x11::xlib::XSetWindowBorderWidth(display as *mut x11::xlib::Display, w, width);
         }
     }
 
-    pub fn XRaiseWindow(display: &mut x11::xlib::Display, w: u64) {
+    pub fn RaiseWindow(display: &mut x11::xlib::Display, w: u64) {
         unsafe {
             x11::xlib::XRaiseWindow(display as *mut x11::xlib::Display, w);
         }
     }
 
-    pub fn XKillClient(display: &mut x11::xlib::Display, w: u64) {
+    pub fn KillClient(display: &mut x11::xlib::Display, w: u64) {
         unsafe {
             x11::xlib::XKillClient(display as *mut x11::xlib::Display, w);
         }
     }
 
-    pub fn XSetInputFocus(display: &mut x11::xlib::Display, focus: u64, revert_to: i32, time: u64) {
+    pub fn SetInputFocus(display: &mut x11::xlib::Display, focus: u64, revert_to: i32, time: u64) {
         unsafe {
             x11::xlib::XSetInputFocus(display as *mut x11::xlib::Display, focus, revert_to, time);
         }
     }
 
-    pub fn XMapWindow(display: &mut x11::xlib::Display, w: u64) {
+    pub fn MapWindow(display: &mut x11::xlib::Display, w: u64) {
         unsafe {
             x11::xlib::XMapWindow(display as *mut x11::xlib::Display, w);
         }
     }
 
-    pub fn XKeysymToKeycode(display: &mut x11::xlib::Display, keysym: u32) -> u32 {
+    pub fn KeysymToKeycode(display: &mut x11::xlib::Display, keysym: u32) -> u32 {
         unsafe {
             x11::xlib::XKeysymToKeycode(display as *mut x11::xlib::Display, keysym as u64) as u32
         }
+    }
+
+    #[derive(Default)]
+    pub struct Event {
+        pub type_: i32,
+        pub button: Option<x11::xlib::XButtonEvent>,
+        pub crossing: Option<x11::xlib::XCrossingEvent>,
+        pub key: Option<x11::xlib::XKeyEvent>,
+        pub map_request: Option<x11::xlib::XMapRequestEvent>,
+        pub destroy_window: Option<x11::xlib::XDestroyWindowEvent>,
+        pub motion: Option<x11::xlib::XMotionEvent>,
     }
 }
 
