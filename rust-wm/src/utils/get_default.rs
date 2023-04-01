@@ -1,7 +1,7 @@
 use std::ptr::null_mut;
 use x11::xlib::{XButtonEvent, XEvent, XSetWindowAttributes, XWindowAttributes};
 
-pub fn XWindowAttributes() -> XWindowAttributes {
+pub fn xwindow_attributes() -> XWindowAttributes {
     XWindowAttributes {
         x: 0,
         y: 0,
@@ -29,7 +29,7 @@ pub fn XWindowAttributes() -> XWindowAttributes {
     }
 }
 
-pub fn XButtonEvent() -> XButtonEvent {
+pub fn xbutton_event() -> XButtonEvent {
     XButtonEvent {
         type_: 0,
         serial: 0,
@@ -49,11 +49,11 @@ pub fn XButtonEvent() -> XButtonEvent {
     }
 }
 
-pub fn XEvent() -> XEvent {
+pub fn xevent() -> XEvent {
     XEvent { type_: 0 }
 }
 
-pub fn XSetWindowAttributes() -> XSetWindowAttributes {
+pub fn xset_window_attributes() -> XSetWindowAttributes {
     XSetWindowAttributes {
         background_pixmap: 0,
         background_pixel: 0,

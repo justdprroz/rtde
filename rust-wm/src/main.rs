@@ -23,10 +23,10 @@ fn manage_client(
     ci: &mut Option<usize>,
     clients: &mut Vec<u64>,
 ) {
-    let mut wa: XSetWindowAttributes = get_default::XSetWindowAttributes();
+    let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
     wa.event_mask =
         LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
-    ChangeWindowAttributes(dpy, ew, CWEventMask | CWCursor, &mut wa);
+    change_window_attributes(dpy, ew, CWEventMask | CWCursor, &mut wa);
 
     // get name
     // let mut c: *mut i8 = null_mut();
@@ -58,9 +58,9 @@ fn manage_client(
     *ci = Some(clients.len());
     clients.push(ew);
 
-    RaiseWindow(dpy, ew);
-    MoveResizeWindow(dpy, ew, 0, 0, 1920, 1080);
-    MapWindow(dpy, ew);
+    raise_window(dpy, ew);
+    move_resize_window(dpy, ew, 0, 0, 1920, 1080);
+    map_window(dpy, ew);
 }
 
 fn get_event_names_list() -> Vec<&'static str> {
@@ -132,22 +132,22 @@ use x11::xlib::XButtonEvent;
 use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XWindowAttributes;
 
-use crate::wrap::xinerama::XineramaQueryScreens;
-use crate::wrap::xlib::ChangeWindowAttributes;
-use crate::wrap::xlib::DefaultRootWindow;
-use crate::wrap::xlib::GetTransientForHint;
-use crate::wrap::xlib::GetWindowAttributes;
-use crate::wrap::xlib::KeysymToKeycode;
-use crate::wrap::xlib::KillClient;
-use crate::wrap::xlib::MapWindow;
-use crate::wrap::xlib::MoveResizeWindow;
-use crate::wrap::xlib::NextEvent;
-use crate::wrap::xlib::OpenDisplay;
-use crate::wrap::xlib::QueryTree;
-use crate::wrap::xlib::RaiseWindow;
-use crate::wrap::xlib::SelectInput;
-use crate::wrap::xlib::SetInputFocus;
-use crate::wrap::xlib::SetWindowBorderWidth;
+use crate::wrap::xinerama::xinerama_query_screens;
+use crate::wrap::xlib::change_window_attributes;
+use crate::wrap::xlib::default_root_window;
+use crate::wrap::xlib::get_transient_for_hint;
+use crate::wrap::xlib::get_window_attributes;
+use crate::wrap::xlib::keysym_to_keycode;
+use crate::wrap::xlib::kill_client;
+use crate::wrap::xlib::map_window;
+use crate::wrap::xlib::move_resize_window;
+use crate::wrap::xlib::next_event;
+use crate::wrap::xlib::open_display;
+use crate::wrap::xlib::query_tree;
+use crate::wrap::xlib::raise_window;
+use crate::wrap::xlib::select_input;
+use crate::wrap::xlib::set_input_focus;
+use crate::wrap::xlib::set_window_border_width;
 
 const MOD_KEY_SHIFT: u32 = ModKey | x11::xlib::ShiftMask;
 
@@ -157,14 +157,14 @@ fn main() {
     let events: Vec<&str> = get_event_names_list();
     println!("|- Created Event Look-Up Array");
 
-    let dpy: &mut Display = OpenDisplay(None).expect("Error opening display!");
+    let dpy: &mut Display = open_display(None).expect("Error opening display!");
     println!("|- Opened X Display");
 
-    let root_win: u64 = DefaultRootWindow(dpy);
+    let root_win: u64 = default_root_window(dpy);
     println!("|- Root window is {}", root_win);
 
     println!("|- Getting per monitor sizes");
-    let screens = XineramaQueryScreens(dpy).expect("Running without xinerama is not supported");
+    let screens = xinerama_query_screens(dpy).expect("Running without xinerama is not supported");
     println!("|- There are {} screen connected", screens.len());
     for screen in screens {
         println!(
@@ -173,8 +173,8 @@ fn main() {
         );
     }
 
-    let mut attr: XWindowAttributes = get_default::XWindowAttributes();
-    let mut start: XButtonEvent = get_default::XButtonEvent();
+    let mut attr: XWindowAttributes = get_default::xwindow_attributes();
+    let mut start: XButtonEvent = get_default::xbutton_event();
     start.subwindow = 0;
 
     let mut clients: Vec<u64> = Vec::new();
@@ -183,7 +183,7 @@ fn main() {
 
     println!("|- Created Useful Variables");
 
-    let mut wa: XSetWindowAttributes = get_default::XSetWindowAttributes();
+    let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
 
     // wa.event_mask = LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
     wa.event_mask = SubstructureRedirectMask
@@ -192,21 +192,21 @@ fn main() {
         | SubstructureNotifyMask
         | StructureNotifyMask;
 
-    ChangeWindowAttributes(dpy, root_win, CWEventMask | CWCursor, &mut wa);
+    change_window_attributes(dpy, root_win, CWEventMask | CWCursor, &mut wa);
 
-    SelectInput(dpy, root_win, wa.event_mask);
+    select_input(dpy, root_win, wa.event_mask);
 
     println!("|- Applied Event Mask");
 
-    let (mut rw, _, wins) = QueryTree(dpy, root_win);
+    let (mut rw, _, wins) = query_tree(dpy, root_win);
 
     println!("|- {} windows are alredy present", clients.len());
 
     for win in wins {
         println!("|-- Checking window {win}");
-        let res = GetWindowAttributes(dpy, win);
+        let res = get_window_attributes(dpy, win);
         if let Some(wa) = res {
-            if wa.override_redirect != 0 || GetTransientForHint(dpy, win, &mut rw) != 0 {
+            if wa.override_redirect != 0 || get_transient_for_hint(dpy, win, &mut rw) != 0 {
                 println!("|---- Window is transient. Skipping");
                 continue;
             }
@@ -235,30 +235,30 @@ fn main() {
     println!("|- Grabbed Shortcuts");
     println!("|- Starting Main Loop");
     loop {
-        let ev = NextEvent(dpy);
+        let ev = next_event(dpy);
         println!("   |- Got Event Of Type \"{}\"", events[ev.type_ as usize]);
         if ev.type_ == KeyPress {
             let key = ev.key.unwrap();
             let _ew: u64 = key.window;
 
             if key.state == ModKey {
-                if key.keycode == KeysymToKeycode(dpy, XK_Return) {
+                if key.keycode == keysym_to_keycode(dpy, XK_Return) {
                     println!("   |- Spawning Terminal");
                     let mut handle = Command::new("kitty").spawn().expect("can't run kitty");
                     std::thread::spawn(move || {
                         handle.wait().expect("can't run process");
                     });
                 }
-                if key.keycode == KeysymToKeycode(dpy, XK_p) {
+                if key.keycode == keysym_to_keycode(dpy, XK_p) {
                     println!("   |- Spawning Dmenu");
                     Command::new("dmenu_run").spawn().unwrap().wait().unwrap();
                 }
-                if key.keycode == KeysymToKeycode(dpy, XK_Page_Up) {
+                if key.keycode == keysym_to_keycode(dpy, XK_Page_Up) {
                     println!("   |- Maximazing Window: {current_win}");
-                    MoveResizeWindow(dpy, current_win, 0, 0, 1920, 1080);
-                    SetWindowBorderWidth(dpy, current_win, 0);
+                    move_resize_window(dpy, current_win, 0, 0, 1920, 1080);
+                    set_window_border_width(dpy, current_win, 0);
                 }
-                if key.keycode == KeysymToKeycode(dpy, XK_Tab) {
+                if key.keycode == keysym_to_keycode(dpy, XK_Tab) {
                     if clients.len() > 1 {
                         println!("   |- Cycling to previous windows...(Hopefully)");
                         println!("   |- Current clients are {:?}", clients);
@@ -266,24 +266,24 @@ fn main() {
                         // XMoveWindow(dpy, clients[index], -1920, -1080);
                         client_index = Some((index + 1) % clients.len());
                         let index = client_index.unwrap();
-                        RaiseWindow(dpy, clients[index]);
+                        raise_window(dpy, clients[index]);
                         // XMoveWindow(dpy, clients[index], 0, 0);
                     } else {
                         println!("   |- No windows. Skipping")
                     }
                 }
-                if key.keycode == KeysymToKeycode(dpy, XK_l) {
+                if key.keycode == keysym_to_keycode(dpy, XK_l) {
                     println!("   |- Current window is {current_win}");
                     println!("   |- Current Clients are {clients:?}")
                 }
             }
             if key.state == MOD_KEY_SHIFT {
-                if key.keycode == KeysymToKeycode(dpy, XK_C) {
+                if key.keycode == keysym_to_keycode(dpy, XK_C) {
                     println!("   |- Killing Window: {current_win}");
                     clients.retain(|&client| client != current_win);
-                    KillClient(dpy, current_win);
+                    kill_client(dpy, current_win);
                 };
-                if key.keycode == KeysymToKeycode(dpy, XK_Q) {
+                if key.keycode == keysym_to_keycode(dpy, XK_Q) {
                     println!("   |- Exiting Window Manager");
                     break;
                 }
@@ -295,14 +295,14 @@ fn main() {
             if button.subwindow != 0 {
                 if button.button == 2 {
                     println!("   |- Selecting Window: {ew}");
-                    RaiseWindow(dpy, ew);
-                    SetInputFocus(dpy, ew, RevertToParent, CurrentTime);
+                    raise_window(dpy, ew);
+                    set_input_focus(dpy, ew, RevertToParent, CurrentTime);
                     // add window decoration
                     // XSetWindowBorderWidth(dpy, ew, 2);
                     // XSetWindowBorder(dpy, ew, argb_to_int(0, 98, 114, 164));
                 } else {
                     println!("   |- Started Grabbing Window: {ew}");
-                    attr = GetWindowAttributes(dpy, button.subwindow).unwrap();
+                    attr = get_window_attributes(dpy, button.subwindow).unwrap();
                     start = button;
                 }
             }
@@ -318,7 +318,7 @@ fn main() {
                 println!("   |- Resizing OR Moving Window");
                 let x_diff: i32 = button.x_root - start.x_root;
                 let y_diff: i32 = button.y_root - start.y_root;
-                MoveResizeWindow(
+                move_resize_window(
                     dpy,
                     start.subwindow,
                     attr.x + {
@@ -389,7 +389,7 @@ fn main() {
             // XRaiseWindow(dpy, ew);
 
             println!("         |- Setting focus to window");
-            SetInputFocus(dpy, ew, RevertToNone, CurrentTime);
+            set_input_focus(dpy, ew, RevertToNone, CurrentTime);
 
             current_win = ew;
         }

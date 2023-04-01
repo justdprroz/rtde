@@ -1,7 +1,7 @@
 pub mod xlib {
-    use crate::utils::get_default::{XEvent, XWindowAttributes};
+    use crate::utils::get_default::{xevent, xwindow_attributes};
 
-    pub fn OpenDisplay(display_name: Option<&str>) -> Option<&mut x11::xlib::Display> {
+    pub fn open_display(display_name: Option<&str>) -> Option<&mut x11::xlib::Display> {
         unsafe {
             let result = match display_name {
                 Some(dn) => {
@@ -14,11 +14,11 @@ pub mod xlib {
         }
     }
 
-    pub fn DefaultRootWindow(display: &mut x11::xlib::Display) -> u64 {
+    pub fn default_root_window(display: &mut x11::xlib::Display) -> u64 {
         unsafe { x11::xlib::XDefaultRootWindow(display as *mut x11::xlib::Display) }
     }
 
-    pub fn ChangeWindowAttributes(
+    pub fn change_window_attributes(
         display: &mut x11::xlib::Display,
         w: u64,
         valuemask: u64,
@@ -34,11 +34,11 @@ pub mod xlib {
         }
     }
 
-    pub fn SelectInput(display: &mut x11::xlib::Display, w: u64, event_mask: i64) -> i32 {
+    pub fn select_input(display: &mut x11::xlib::Display, w: u64, event_mask: i64) -> i32 {
         unsafe { x11::xlib::XSelectInput(display as *mut x11::xlib::Display, w, event_mask) }
     }
 
-    pub fn QueryTree(display: &mut x11::xlib::Display, w: u64) -> (u64, u64, Vec<u64>) {
+    pub fn query_tree(display: &mut x11::xlib::Display, w: u64) -> (u64, u64, Vec<u64>) {
         unsafe {
             let mut root_return: u64 = 0;
             let mut parent_return: u64 = 0;
@@ -69,12 +69,12 @@ pub mod xlib {
         }
     }
 
-    pub fn GetWindowAttributes(
+    pub fn get_window_attributes(
         display: &mut x11::xlib::Display,
         w: u64,
     ) -> Option<x11::xlib::XWindowAttributes> {
         unsafe {
-            let mut wa: x11::xlib::XWindowAttributes = XWindowAttributes();
+            let mut wa: x11::xlib::XWindowAttributes = xwindow_attributes();
             if x11::xlib::XGetWindowAttributes(
                 display as *mut x11::xlib::Display,
                 w,
@@ -88,7 +88,7 @@ pub mod xlib {
         }
     }
 
-    pub fn GetTransientForHint(
+    pub fn get_transient_for_hint(
         display: &mut x11::xlib::Display,
         w: u64,
         prop_window_return: &mut u64,
@@ -102,9 +102,9 @@ pub mod xlib {
         }
     }
 
-    pub fn NextEvent(display: &mut x11::xlib::Display) -> Event {
+    pub fn next_event(display: &mut x11::xlib::Display) -> Event {
         unsafe {
-            let mut ev: x11::xlib::XEvent = XEvent();
+            let mut ev: x11::xlib::XEvent = xevent();
             x11::xlib::XNextEvent(
                 display as *mut x11::xlib::Display,
                 &mut ev as *mut x11::xlib::XEvent,
@@ -134,7 +134,7 @@ pub mod xlib {
         }
     }
 
-    pub fn MoveResizeWindow(
+    pub fn move_resize_window(
         display: &mut x11::xlib::Display,
         w: u64,
         x: i32,
@@ -154,37 +154,37 @@ pub mod xlib {
         }
     }
 
-    pub fn SetWindowBorderWidth(display: &mut x11::xlib::Display, w: u64, width: u32) {
+    pub fn set_window_border_width(display: &mut x11::xlib::Display, w: u64, width: u32) {
         unsafe {
             x11::xlib::XSetWindowBorderWidth(display as *mut x11::xlib::Display, w, width);
         }
     }
 
-    pub fn RaiseWindow(display: &mut x11::xlib::Display, w: u64) {
+    pub fn raise_window(display: &mut x11::xlib::Display, w: u64) {
         unsafe {
             x11::xlib::XRaiseWindow(display as *mut x11::xlib::Display, w);
         }
     }
 
-    pub fn KillClient(display: &mut x11::xlib::Display, w: u64) {
+    pub fn kill_client(display: &mut x11::xlib::Display, w: u64) {
         unsafe {
             x11::xlib::XKillClient(display as *mut x11::xlib::Display, w);
         }
     }
 
-    pub fn SetInputFocus(display: &mut x11::xlib::Display, focus: u64, revert_to: i32, time: u64) {
+    pub fn set_input_focus(display: &mut x11::xlib::Display, focus: u64, revert_to: i32, time: u64) {
         unsafe {
             x11::xlib::XSetInputFocus(display as *mut x11::xlib::Display, focus, revert_to, time);
         }
     }
 
-    pub fn MapWindow(display: &mut x11::xlib::Display, w: u64) {
+    pub fn map_window(display: &mut x11::xlib::Display, w: u64) {
         unsafe {
             x11::xlib::XMapWindow(display as *mut x11::xlib::Display, w);
         }
     }
 
-    pub fn KeysymToKeycode(display: &mut x11::xlib::Display, keysym: u32) -> u32 {
+    pub fn keysym_to_keycode(display: &mut x11::xlib::Display, keysym: u32) -> u32 {
         unsafe {
             x11::xlib::XKeysymToKeycode(display as *mut x11::xlib::Display, keysym as u64) as u32
         }
@@ -203,7 +203,7 @@ pub mod xlib {
 }
 
 pub mod xinerama {
-    pub fn XineramaQueryScreens(
+    pub fn xinerama_query_screens(
         display: &mut x11::xlib::Display,
     ) -> Option<Vec<x11::xinerama::XineramaScreenInfo>> {
         unsafe {
