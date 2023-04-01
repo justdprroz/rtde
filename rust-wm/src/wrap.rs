@@ -1,5 +1,5 @@
 pub mod xlib {
-    use crate::utils::get_default::{xevent, xwindow_attributes};
+    use crate::get_default::{xevent, xwindow_attributes};
 
     pub fn open_display(display_name: Option<&str>) -> Option<&mut x11::xlib::Display> {
         unsafe {

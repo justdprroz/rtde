@@ -2,14 +2,15 @@
 //#![allow(non_upper_case_globals)]
 //#![allow(dead_code)]
 
-mod utils;
+mod get_default;
+mod grab;
 use std::process::Command;
 
-use utils::get_default;
-use utils::grab::grab_button;
-use utils::grab::grab_key;
+use grab::grab_button;
+use grab::grab_key;
 
 mod wrap;
+mod structs;
 
 // What the fuck is going on here
 fn _argb_to_int(a: u32, r: u8, g: u8, b: u8) -> u64 {
@@ -165,6 +166,11 @@ fn run() {
 
 fn main() {
     // Create variables
+    let mut events: Vec<&str>;
+    let mut dpy: &mut Display;
+    let mut root_win: u64;
+    let mut client: Vec<u64>;
+    let mut monitors: Vec<(u64, i64, i64, u64, u64)>;
 
     // println!("Started Window Manager");
     //    unsafe {
