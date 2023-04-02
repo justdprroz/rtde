@@ -45,8 +45,6 @@ pub mod xlib {
             let mut nchildren_return: u32 = 0;
             let mut children_return: *mut u64 = 0 as *mut u64;
 
-            println!("==== Created vars");
-
             x11::xlib::XQueryTree(
                 display as *mut x11::xlib::Display,
                 w,
@@ -55,8 +53,6 @@ pub mod xlib {
                 &mut children_return as *mut *mut u64,
                 &mut nchildren_return as *mut u32,
             );
-
-            println!("==== Got tree");
 
             (
                 0,
@@ -172,7 +168,12 @@ pub mod xlib {
         }
     }
 
-    pub fn set_input_focus(display: &mut x11::xlib::Display, focus: u64, revert_to: i32, time: u64) {
+    pub fn set_input_focus(
+        display: &mut x11::xlib::Display,
+        focus: u64,
+        revert_to: i32,
+        time: u64,
+    ) {
         unsafe {
             x11::xlib::XSetInputFocus(display as *mut x11::xlib::Display, focus, revert_to, time);
         }
@@ -208,7 +209,6 @@ pub mod xinerama {
     ) -> Option<Vec<x11::xinerama::XineramaScreenInfo>> {
         unsafe {
             let mut screens_amount: i32 = 0;
-            println!("====created var");
             match x11::xinerama::XineramaQueryScreens(
                 display as *mut x11::xlib::Display,
                 &mut screens_amount as *mut i32,
@@ -216,7 +216,6 @@ pub mod xinerama {
             .as_mut()
             {
                 Some(xqs) => {
-                    println!("==== got something");
                     Some(std::slice::from_raw_parts_mut(xqs, screens_amount as usize).to_vec())
                 }
                 None => None,

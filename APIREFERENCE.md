@@ -31,15 +31,15 @@
             >
             > **Fields:**
             >
-            > `visual_preferences` - holds `VisualPreferencesContainer`
+            > `visual_preferences` - holds `Vec` of `VisualPreference`
             >
-            > `actions` - holds `Vec` of `Action`s
+            > `actions` - holds `Vec` of `Action`
             >
-            > `layout_rules` - holds `LayoutRulesContainer`
+            > `layout_rules` - holds `Vec` of `LayoutRule`
             >
-            > `status_bar_builder` - holds `StatusBarBuilderContainer`
+            > `status_bar_builder` - holds `Vec` `StatusBarBuilder`
 
-            * `VisualPreferencesContainer`
+            * `VisualPreference`
 
                 > Holds UI settings like: colors, workspace names etc.
                 >
@@ -112,13 +112,13 @@
                         >
                         > `Previous` - moves to previous screen
 
-            * `LayoutRulesContainer`
+            * `LayoutRule`
 
                 > Stores information about preferred layouts, window arrangement rules, etc
                 >
                 > <span style="background:yellow;color:black;padding:5px"><b>Not yet implemented</b></span>
 
-            * `StatusBarBuilderContainer`
+            * `StatusBarBuilder`
 
                 > Stores user-defined set of rules for builfing status bar
                 >
@@ -148,6 +148,12 @@
             * `VariablesContainer`
 
                 > Stores some session-only data like scales, selected layout type, active window info, etc.
+                >
+                > **Fields:**
+                >
+                > `display` - hold default X server display
+                >
+                > `root_win` - holds default window of `display`
                 >
                 > <span style="background:yellow;color:black;padding:5px"><b>Not yet implemented</b></span>
 
