@@ -1,2 +1,2 @@
-cargo build --release;
-sudo cp -f ./target/release/rust-wm /usr/local/bin
+cargo build;
+sudo cp -f ./target/debug/rust-wm /usr/local/bin

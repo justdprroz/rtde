@@ -179,6 +179,11 @@ fn setup() -> ApplicationContainer {
                 keysym: XK_C,
                 result: ActionResult::KillClient,
             },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_l,
+                result: ActionResult::DumpInfo(),
+            }
         ];
 
         for (index, key) in vec![XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
@@ -397,6 +402,7 @@ fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
     let s = &mut window_system.screens[window_system.current_screen];
     let w = &mut s.workspaces[s.current_workspace];
     w.current_client = Some(w.clients.len());
+    window_system.current_client = w.current_client;
     w.clients.push(Client {
         window_id: win,
         window_name: "Window".to_string(),
@@ -445,6 +451,8 @@ fn arrange(ws: &mut WindowSystemContainer) {
                 client.h = ((screen_size.1 as f64) / (stack_size as i64 - master_size) as f64) as u32;
             }
         }
+    }
+    for client in &ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients {
         move_resize_window(ws.display, client.window_id, client.x, client.y, client.w, client.h);
     }
 }
@@ -452,14 +460,18 @@ fn arrange(ws: &mut WindowSystemContainer) {
 fn update_current_client(window_system: &mut WindowSystemContainer, win: u64) {
     let s = &mut window_system.screens[window_system.current_screen];
     let w = &mut s.workspaces[s.current_workspace];
-    w.current_client = w.clients.iter().position(|r| r.window_id == win);
+    match w.clients.iter().position(|r| r.window_id == win) {
+        Some(index) => {
+            w.current_client = Some(index);
+            window_system.current_client = Some(index);
+        },
+        None => {},
+    }
 }
 
 fn get_current_client_id(window_system: &mut WindowSystemContainer) -> Option<u64> {
-    let s = &window_system.screens[window_system.current_screen];
-    let w = &s.workspaces[s.current_workspace];
-    match w.current_client {
-        Some(index) => Some(w.clients[index].window_id),
+    match window_system.current_client {
+        Some(index) => Some(window_system.screens[window_system.current_screen].workspaces[window_system.current_workspace].clients[index].window_id),
         None => None,
     }
 }
@@ -480,12 +492,23 @@ fn find_window_indexes(
     return None;
 }
 
+fn show_hide_workspace(ws: &mut WindowSystemContainer) {
+    for client in &mut ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients {
+        if client.visible {
+            move_resize_window(ws.display, client.window_id, client.w as i32 * -1, client.h as i32 * -1, client.w, client.h);
+        } else {
+            move_resize_window(ws.display, client.window_id, client.x, client.y, client.w, client.h);
+        }
+        client.visible = !client.visible;
+    }
+}
+
 fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContainer) {
     log!("|===== run =====");
     while window_system.running {
         // Process Events
         let ev = next_event(window_system.display);
-        println!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
+        log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
 
         match ev.type_ {
             x11::xlib::KeyPress => {
@@ -496,9 +519,10 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                     {
                         match &action.result {
                             ActionResult::KillClient => {
-                                println!("   |- Got `KillClient` Action");
+                                log!("   |- Got `KillClient` Action");
                                 match get_current_client_id(window_system) {
                                     Some(id) => {
+                                        log!("      |- Killing window {}", id);
                                         kill_client(window_system.display, id);
                                     }
                                     None => {
@@ -524,8 +548,14 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                             ActionResult::MoveToWorkspace(_) => {
                                 log!("   |- Action `MoveToWorkspace` is not currently supported");
                             }
-                            ActionResult::FocusOnWorkspace(_) => {
-                                log!("   |- Action `FocusOnWorkspace` is not currently supported");
+                            ActionResult::FocusOnWorkspace(n) => {
+                                // log!("   |- Action `FocusOnWorkspace` is not currently supported");
+                                if *n as usize != window_system.current_workspace {
+                                    show_hide_workspace(window_system);
+                                    window_system.current_workspace = *n as usize;
+                                    window_system.screens[window_system.current_screen].current_workspace = *n as usize;
+                                    show_hide_workspace(window_system);
+                                }
                             }
                             ActionResult::MaximazeWindow() => {
                                 log!("   |- Action `MaximazeWindow` is not currently supported");
@@ -544,6 +574,9 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                     [window_system.current_workspace]
                                     .master_width += *w;
                             }
+                            ActionResult::DumpInfo() => {
+                                log!("{:#?}", window_system.screens);
+                            },
                         }
                     }
                 }
@@ -566,8 +599,8 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
             x11::xlib::DestroyNotify => {
                 let ew: u64 = ev.destroy_window.unwrap().window;
                 log!("|- Window {} destroyed", ew);
-
                 if let Some((s, w, c)) = find_window_indexes(window_system, ew) {
+                    log!("   |- Found window {} at indexes {}, {}, {}", ew, s, w, c);
                     let clients = &mut window_system.screens[s].workspaces[w].clients;
                     clients.remove(c);
                     window_system.screens[s].workspaces[w].current_client = {
@@ -587,6 +620,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                             }
                         }
                     };
+                    window_system.current_client = window_system.screens[s].workspaces[w].current_client;
                     arrange(window_system);
                 } else {
                     log!("   |- Window is not managed");

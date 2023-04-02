@@ -36,6 +36,7 @@ pub enum ActionResult {
     MoveToWorkspace(u64),
     FocusOnWorkspace(u64),
     MaximazeWindow(),
+    DumpInfo(),
     Quit,
 }
 
@@ -60,8 +61,11 @@ pub struct WindowSystemContainer {
     pub running: bool,
 }
 
+
+#[derive(Debug)]
 pub struct StatusBarContainer {}
 
+#[derive(Debug)]
 pub struct Screen {
     pub number: i64,
     pub x: i64,
@@ -72,6 +76,7 @@ pub struct Screen {
     pub current_workspace: usize,
 }
 
+#[derive(Debug)]
 pub struct Workspace {
     pub number: u64,
     pub master_size: i64,
@@ -80,6 +85,7 @@ pub struct Workspace {
     pub current_client: Option<usize>,
 }
 
+#[derive(Debug)]
 pub struct Client {
     pub window_id: u64,
     pub window_name: String,
@@ -88,8 +94,8 @@ pub struct Client {
     pub w: u32,
     pub h: u32,
     pub visible: bool,
-    pub px: i64,
-    pub py: i64,
+    pub px: i32,
+    pub py: i32,
 }
 
 pub struct Api {}
