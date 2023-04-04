@@ -61,6 +61,7 @@ fn get_event_names_list() -> Vec<&'static str> {
 use wrap::xlib::Event;
 use x11::keysym::*;
 use x11::xlib::ButtonPress;
+use x11::xlib::ButtonPressMask;
 use x11::xlib::ButtonRelease;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
@@ -78,6 +79,7 @@ use x11::xlib::Mod1Mask as ModKey;
 use x11::xlib::MotionNotify;
 use x11::xlib::PointerMotionHintMask;
 use x11::xlib::PointerMotionMask;
+use x11::xlib::PropertyChangeMask;
 use x11::xlib::RevertToNone;
 use x11::xlib::RevertToParent;
 use x11::xlib::ShiftMask;
@@ -330,6 +332,7 @@ fn setup() -> ApplicationContainer {
             current_workspace: 0,
         })
     }
+    log!("{:#?}", app.environment.window_system.screens);
     log!("|- Initialized xinerama `Screens` and nested `Workspaces`");
     // TODO: Init Api
 
@@ -340,7 +343,9 @@ fn setup() -> ApplicationContainer {
         | EnterWindowMask
         | SubstructureNotifyMask
         | StructureNotifyMask
-        | PointerMotionMask;
+        | PointerMotionMask
+        | ButtonPressMask
+        | PropertyChangeMask;
 
     change_window_attributes(
         app.environment.window_system.display,
@@ -389,7 +394,7 @@ fn scan(config: &ConfigurationContainer, window_system: &mut WindowSystemContain
 fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
     let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
     wa.event_mask =
-        LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask | PointerMotionMask;
+        LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
     change_window_attributes(window_system.display, win, CWEventMask | CWCursor, &mut wa);
 
     // get name
@@ -446,12 +451,12 @@ fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
 fn arrange(ws: &mut WindowSystemContainer) {
     for screen in &mut ws.screens {
         let master_width = (screen.width as f64
-            * screen.workspaces[ws.current_workspace].master_width)
+            * screen.workspaces[screen.current_workspace].master_width)
             as u32;
-        let master_size = screen.workspaces[ws.current_workspace].master_size;
-        let stack_size = screen.workspaces[ws.current_workspace].clients.len();
+        let master_size = screen.workspaces[screen.current_workspace].master_size;
+        let stack_size = screen.workspaces[screen.current_workspace].clients.len();
         log!("   |- Arranging {} window", stack_size);
-        for (index, client) in screen.workspaces[ws.current_workspace].clients.iter_mut().rev().enumerate() {
+        for (index, client) in screen.workspaces[screen.current_workspace].clients.iter_mut().rev().enumerate() {
             if stack_size == 1 {
                 client.x = 0;
                 client.y = 0;
@@ -473,7 +478,7 @@ fn arrange(ws: &mut WindowSystemContainer) {
                 }
             }
         }
-        for client in &screen.workspaces[ws.current_workspace].clients {
+        for client in &screen.workspaces[screen.current_workspace].clients {
             move_resize_window(ws.display, client.window_id, client.x + screen.x as i32, client.y + screen.y as i32, client.w, client.h);
         }
     }
@@ -551,7 +556,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
     while window_system.running {
         // Process Events
         let ev = next_event(window_system.display);
-        log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
+       // log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
 
         match ev.type_ {
             x11::xlib::KeyPress => {
@@ -610,6 +615,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                     },
                                 };
                                 window_system.current_screen = cs;
+                                window_system.current_workspace = window_system.screens[window_system.current_screen].current_workspace;
                             }
                             ActionResult::MoveToWorkspace(n) => {
                                 log!("   |- Got `MoveToWorkspace` Action ");
@@ -671,6 +677,9 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                 log!("   |- Setting focus to window");
                 set_input_focus(window_system.display, ew, RevertToNone, CurrentTime);
                 update_current_client(window_system, ew);
+                if let Some((s, _, _)) = find_window_indexes(window_system, ew) {
+                    window_system.current_screen = s;
+                };
             }
 
             x11::xlib::DestroyNotify => {
@@ -686,14 +695,16 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                     log!("   |- Window is not managed");
                 }
             }
-
             x11::xlib::MotionNotify => {
                 log!("   |- `Motion` detected");
                 let p = ev.motion.unwrap();
                 let (x, y) = (p.x as i64, p.y as i64);
+  //              log!("Pointer: {x}, {y}");
                 for screen in &window_system.screens {
+    //                log!("Screen: {}, {} {}x{}", screen.x, screen.y, screen.width, screen.height);
                     if screen.x <= x && x < screen.x + screen.width
                         && screen.y <= y && y < screen.y + screen.height {
+      //                      log!("Matched!!");
                             window_system.current_screen = screen.number as usize;
                     }  
                 }
