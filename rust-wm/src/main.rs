@@ -76,6 +76,8 @@ use x11::xlib::LeaveWindowMask;
 use x11::xlib::MapRequest;
 use x11::xlib::Mod1Mask as ModKey;
 use x11::xlib::MotionNotify;
+use x11::xlib::PointerMotionHintMask;
+use x11::xlib::PointerMotionMask;
 use x11::xlib::RevertToNone;
 use x11::xlib::RevertToParent;
 use x11::xlib::ShiftMask;
@@ -183,6 +185,26 @@ fn setup() -> ApplicationContainer {
                 modifier: ModKey,
                 keysym: XK_l,
                 result: ActionResult::DumpInfo(),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_comma,
+                result: ActionResult::FocusOnScreen(ScreenSwitching::Previous),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_period,
+                result: ActionResult::FocusOnScreen(ScreenSwitching::Next),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_comma,
+                result: ActionResult::MoveToScreen(ScreenSwitching::Previous),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_period,
+                result: ActionResult::MoveToScreen(ScreenSwitching::Next),
             }
         ];
 
@@ -317,7 +339,8 @@ fn setup() -> ApplicationContainer {
         | LeaveWindowMask
         | EnterWindowMask
         | SubstructureNotifyMask
-        | StructureNotifyMask;
+        | StructureNotifyMask
+        | PointerMotionMask;
 
     change_window_attributes(
         app.environment.window_system.display,
@@ -366,7 +389,7 @@ fn scan(config: &ConfigurationContainer, window_system: &mut WindowSystemContain
 fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
     let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
     wa.event_mask =
-        LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask;
+        LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask | PointerMotionMask;
     change_window_attributes(window_system.display, win, CWEventMask | CWCursor, &mut wa);
 
     // get name
@@ -421,39 +444,38 @@ fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
 }
 
 fn arrange(ws: &mut WindowSystemContainer) {
-    let master_width = (ws.screens[ws.current_screen].width as f64
-        * ws.screens[ws.current_screen].workspaces[ws.current_workspace].master_width)
-        as u32;
-    let master_size = ws.screens[ws.current_screen].workspaces[ws.current_workspace].master_size;
-    let screen_size = (ws.screens[ws.current_screen].width, ws.screens[ws.current_screen].height);
-    let stack_size = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients.len();
-    log!("   |- Arranging {} window", stack_size);
-    for (index, client) in ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients.iter_mut().rev().enumerate() {
-        if stack_size == 1 {
-            client.x = 0;
-            client.y = 0;
-            client.w = screen_size.0 as u32;
-            client.h = screen_size.1 as u32;
-        } else {
-            if (index as i64) < master_size {
-                log!("      |- Goes to master");
+    for screen in &mut ws.screens {
+        let master_width = (screen.width as f64
+            * screen.workspaces[ws.current_workspace].master_width)
+            as u32;
+        let master_size = screen.workspaces[ws.current_workspace].master_size;
+        let stack_size = screen.workspaces[ws.current_workspace].clients.len();
+        log!("   |- Arranging {} window", stack_size);
+        for (index, client) in screen.workspaces[ws.current_workspace].clients.iter_mut().rev().enumerate() {
+            if stack_size == 1 {
                 client.x = 0;
-                client.y = ((index as f64) * (screen_size.1 as f64) / (master_size as f64)) as i32;
-                client.w = master_width;
-                client.h = ((screen_size.1 as f64) / (master_size as f64)) as u32;
+                client.y = 0;
+                client.w = screen.width as u32;
+                client.h = screen.height as u32;
             } else {
-                log!("      |- Goes to stack");
-                dbg!(master_width, master_size, screen_size, stack_size, index);
-                log!("hello");
-                client.x = master_width as i32;
-                client.y = ((index as i64 - master_size) as f64 * (screen_size.1 as f64) / (stack_size as i64 - master_size) as f64) as i32;
-                client.w = screen_size.0 as u32 - master_width;
-                client.h = ((screen_size.1 as f64) / (stack_size as i64 - master_size) as f64) as u32;
+                if (index as i64) < master_size {
+                    log!("      |- Goes to master");
+                    client.x = 0;
+                    client.y = ((index as f64) * (screen.height as f64) / (master_size as f64)) as i32;
+                    client.w = master_width;
+                    client.h = ((screen.height as f64) / (master_size as f64)) as u32;
+                } else {
+                    log!("      |- Goes to stack");
+                    client.x = master_width as i32;
+                    client.y = ((index as i64 - master_size) as f64 * (screen.height as f64) / (stack_size as i64 - master_size) as f64) as i32;
+                    client.w = screen.width as u32 - master_width;
+                    client.h = ((screen.height as f64) / (stack_size as i64 - master_size) as f64) as u32;
+                }
             }
         }
-    }
-    for client in &ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients {
-        move_resize_window(ws.display, client.window_id, client.x, client.y, client.w, client.h);
+        for client in &screen.workspaces[ws.current_workspace].clients {
+            move_resize_window(ws.display, client.window_id, client.x + screen.x as i32, client.y + screen.y as i32, client.w, client.h);
+        }
     }
 }
 
@@ -503,6 +525,27 @@ fn show_hide_workspace(ws: &mut WindowSystemContainer) {
     }
 }
 
+fn shift_current_client(ws: &mut WindowSystemContainer) {
+    ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client = {
+        let clients = &ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients;
+        if clients.len() == 1 {
+            Some(0)
+        } else if clients.len() == 0 {
+            None
+        } else {
+            let cc = ws.screens[ws.current_screen].workspaces[ws.current_workspace]
+                .current_client
+                .expect("WHAT THE FUCK");
+            if cc < clients.len() {
+                Some(cc)
+            } else {
+                Some(cc - 1)
+            }
+        }
+    };
+    ws.current_client = ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client;
+}
+
 fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContainer) {
     log!("|===== run =====");
     while window_system.running {
@@ -517,6 +560,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                     if ev.keycode == keysym_to_keycode(window_system.display, action.keysym)
                         && ev.state == action.modifier
                     {
+                        log!("   |- Got {:?} action", action.result);
                         match &action.result {
                             ActionResult::KillClient => {
                                 log!("   |- Got `KillClient` Action");
@@ -539,22 +583,55 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                     handle.wait().expect("can't run process");
                                 });
                             }
-                            ActionResult::MoveToScreen(_) => {
-                                log!("   |- Action `MoveToScreen` is not currently supported");
+                            ActionResult::MoveToScreen(d) => {
+                                if let Some(index) = window_system.current_client {
+                                    let mut cs = window_system.current_screen;
+                                    cs = match d {
+                                        ScreenSwitching::Next => {
+                                            (cs + 1) % window_system.screens.len()
+                                        },
+                                        ScreenSwitching::Previous => {
+                                            (cs + window_system.screens.len() - 1) % window_system.screens.len()
+                                        },
+                                    };
+                                    let cc = window_system.screens[window_system.current_screen].workspaces[window_system.current_workspace].clients.remove(index);
+                                    window_system.screens[window_system.current_screen].workspaces[cs].clients.push(cc);
+                                    arrange(window_system);
+                                }
                             }
-                            ActionResult::FocusOnScreen(_) => {
-                                log!("   |- Action `FocusOnScreen` is not currently supported");
+                            ActionResult::FocusOnScreen(d) => {
+                                let mut cs = window_system.current_screen;
+                                cs = match d {
+                                    ScreenSwitching::Next => {
+                                        (cs + 1) % window_system.screens.len()
+                                    },
+                                    ScreenSwitching::Previous => {
+                                        (cs + window_system.screens.len() - 1) % window_system.screens.len()
+                                    },
+                                };
+                                window_system.current_screen = cs;
                             }
-                            ActionResult::MoveToWorkspace(_) => {
-                                log!("   |- Action `MoveToWorkspace` is not currently supported");
+                            ActionResult::MoveToWorkspace(n) => {
+                                log!("   |- Got `MoveToWorkspace` Action ");
+                                if *n as usize != window_system.current_workspace {
+                                    if let Some(index) = window_system.current_client {
+                                        let mut cc = window_system.screens[window_system.current_screen].workspaces[window_system.current_workspace].clients.remove(index);
+                                        arrange(window_system);
+                                        move_resize_window(window_system.display, cc.window_id, cc.w as i32 * -1, cc.h as i32 * -1, cc.w, cc.h);
+                                        cc.visible = !cc.visible;
+                                        shift_current_client(window_system);
+                                        window_system.screens[window_system.current_screen].workspaces[*n as usize].clients.push(cc);
+                                    }
+                                }
                             }
                             ActionResult::FocusOnWorkspace(n) => {
-                                // log!("   |- Action `FocusOnWorkspace` is not currently supported");
+                                log!("   |- Got `FocusOnWorkspace` Action");
                                 if *n as usize != window_system.current_workspace {
                                     show_hide_workspace(window_system);
                                     window_system.current_workspace = *n as usize;
                                     window_system.screens[window_system.current_screen].current_workspace = *n as usize;
                                     show_hide_workspace(window_system);
+                                    arrange(window_system);
                                 }
                             }
                             ActionResult::MaximazeWindow() => {
@@ -603,27 +680,22 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                     log!("   |- Found window {} at indexes {}, {}, {}", ew, s, w, c);
                     let clients = &mut window_system.screens[s].workspaces[w].clients;
                     clients.remove(c);
-                    window_system.screens[s].workspaces[w].current_client = {
-                        let clients = &window_system.screens[s].workspaces[w].clients;
-                        if clients.len() == 1 {
-                            Some(0)
-                        } else if clients.len() == 0 {
-                            None
-                        } else {
-                            let cc = window_system.screens[s].workspaces[w]
-                                .current_client
-                                .expect("WHAT THE FUCK");
-                            if cc < clients.len() {
-                                Some(cc)
-                            } else {
-                                Some(cc - 1)
-                            }
-                        }
-                    };
-                    window_system.current_client = window_system.screens[s].workspaces[w].current_client;
+                    shift_current_client(window_system);
                     arrange(window_system);
                 } else {
                     log!("   |- Window is not managed");
+                }
+            }
+
+            x11::xlib::MotionNotify => {
+                log!("   |- `Motion` detected");
+                let p = ev.motion.unwrap();
+                let (x, y) = (p.x as i64, p.y as i64);
+                for screen in &window_system.screens {
+                    if screen.x <= x && x < screen.x + screen.width
+                        && screen.y <= y && y < screen.y + screen.height {
+                            window_system.current_screen = screen.number as usize;
+                    }  
                 }
             }
             _ => {}
