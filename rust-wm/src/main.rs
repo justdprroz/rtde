@@ -174,6 +174,36 @@ fn setup() -> ApplicationContainer {
                 result: ActionResult::Spawn("dmenu_run".to_string()),
             },
             KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioRaiseVolume,
+                result: ActionResult::Spawn("/usr/local/bin/volumeup".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioLowerVolume,
+                result: ActionResult::Spawn("/usr/local/bin/volumedown".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioMute,
+                result: ActionResult::Spawn("/usr/local/bin/volumemute".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioPlay,
+                result: ActionResult::Spawn("playerctl play-pause".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioNext,
+                result: ActionResult::Spawn("playerctl next".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioPrev,
+                result: ActionResult::Spawn("playerctl previous".to_string()),
+            },
+            KeyAction {
                 modifier: ModKey | ShiftMask,
                 keysym: XK_Q,
                 result: ActionResult::Quit,
@@ -581,7 +611,9 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                             }
                             ActionResult::Spawn(cmd) => {
                                 println!("   |- Got `Spawn` Action");
-                                let mut handle = Command::new(cmd)
+                                let mut handle = Command::new("/usr/bin/sh")
+                                    .arg("-c")
+                                    .arg(cmd)
                                     .spawn()
                                     .expect(format!("can't execute {cmd}").as_str());
                                 std::thread::spawn(move || {
