@@ -66,6 +66,7 @@ use wrap::xlib::intern_atom;
 use wrap::xlib::send_event;
 use x11::keysym::*;
 use x11::xlib::ButtonPress;
+use x11::xlib::ButtonPressMask;
 use x11::xlib::ButtonRelease;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
@@ -179,6 +180,36 @@ fn setup() -> ApplicationContainer {
                 modifier: ModKey,
                 keysym: XK_p,
                 result: ActionResult::Spawn("dmenu_run".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioRaiseVolume,
+                result: ActionResult::Spawn("/usr/local/bin/volumeup".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioLowerVolume,
+                result: ActionResult::Spawn("/usr/local/bin/volumedown".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioMute,
+                result: ActionResult::Spawn("/usr/local/bin/volumemute".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioPlay,
+                result: ActionResult::Spawn("playerctl play-pause".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioNext,
+                result: ActionResult::Spawn("playerctl next".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioPrev,
+                result: ActionResult::Spawn("playerctl previous".to_string()),
             },
             KeyAction {
                 modifier: ModKey | ShiftMask,
@@ -338,6 +369,7 @@ fn setup() -> ApplicationContainer {
             current_workspace: 0,
         })
     }
+    log!("{:#?}", app.environment.window_system.screens);
     log!("|- Initialized xinerama `Screens` and nested `Workspaces`");
     // TODO: Init Api
 
@@ -348,7 +380,9 @@ fn setup() -> ApplicationContainer {
         | EnterWindowMask
         | SubstructureNotifyMask
         | StructureNotifyMask
-        | PointerMotionMask;
+        | PointerMotionMask
+        | ButtonPressMask
+        | PropertyChangeMask;
 
     change_window_attributes(
         app.environment.window_system.display,
@@ -457,12 +491,12 @@ fn arrange(ws: &mut WindowSystemContainer) {
     log!("   |- Arranging...");
     for screen in &mut ws.screens {
         let master_width = (screen.width as f64
-            * screen.workspaces[ws.current_workspace].master_width)
+            * screen.workspaces[screen.current_workspace].master_width)
             as u32;
-        let master_size = screen.workspaces[ws.current_workspace].master_size;
-        let stack_size = screen.workspaces[ws.current_workspace].clients.len();
+        let master_size = screen.workspaces[screen.current_workspace].master_size;
+        let stack_size = screen.workspaces[screen.current_workspace].clients.len();
         log!("   |- Arranging {} window", stack_size);
-        for (index, client) in screen.workspaces[ws.current_workspace].clients.iter_mut().rev().enumerate() {
+        for (index, client) in screen.workspaces[screen.current_workspace].clients.iter_mut().rev().enumerate() {
             if stack_size == 1 {
                 client.x = 0;
                 client.y = 0;
@@ -484,7 +518,7 @@ fn arrange(ws: &mut WindowSystemContainer) {
                 }
             }
         }
-        for client in &screen.workspaces[ws.current_workspace].clients {
+        for client in &screen.workspaces[screen.current_workspace].clients {
             move_resize_window(ws.display, client.window_id, client.x + screen.x as i32, client.y + screen.y as i32, client.w, client.h);
         }
     }
@@ -615,7 +649,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
     while window_system.running {
         // Process Events
         let ev = next_event(window_system.display);
-        // log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
+       // log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
 
         match ev.type_ {
             x11::xlib::KeyPress => {
@@ -650,7 +684,9 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                             }
                             ActionResult::Spawn(cmd) => {
                                 println!("   |- Got `Spawn` Action");
-                                let mut handle = Command::new(cmd)
+                                let mut handle = Command::new("/usr/bin/sh")
+                                    .arg("-c")
+                                    .arg(cmd)
                                     .spawn()
                                     .expect(format!("can't execute {cmd}").as_str());
                                 std::thread::spawn(move || {
@@ -684,6 +720,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                     },
                                 };
                                 window_system.current_screen = cs;
+                                window_system.current_workspace = window_system.screens[window_system.current_screen].current_workspace;
                             }
                             ActionResult::MoveToWorkspace(n) => {
                                 log!("   |- Got `MoveToWorkspace` Action ");
@@ -750,6 +787,9 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                 log!("   |- Setting focus to window");
                 set_input_focus(window_system.display, ew, RevertToNone, CurrentTime);
                 update_current_client(window_system, ew);
+                if let Some((s, _, _)) = find_window_indexes(window_system, ew) {
+                    window_system.current_screen = s;
+                };
             }
 
             x11::xlib::DestroyNotify => {
@@ -763,14 +803,16 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                 log!("|- Window {} unmapped", ew);
                 unmanage_window(window_system, ew);
             }
-
             x11::xlib::MotionNotify => {
                 log!("|- `Motion` detected");
                 let p = ev.motion.unwrap();
                 let (x, y) = (p.x as i64, p.y as i64);
+  //              log!("Pointer: {x}, {y}");
                 for screen in &window_system.screens {
+    //                log!("Screen: {}, {} {}x{}", screen.x, screen.y, screen.width, screen.height);
                     if screen.x <= x && x < screen.x + screen.width
                         && screen.y <= y && y < screen.y + screen.height {
+      //                      log!("Matched!!");
                             window_system.current_screen = screen.number as usize;
                     }  
                 }
