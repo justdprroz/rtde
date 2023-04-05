@@ -5,6 +5,8 @@
 mod get_default;
 mod grab;
 use std::process::Command;
+use std::ptr::null;
+use std::ptr::null_mut;
 
 use grab::grab_key;
 
@@ -59,16 +61,21 @@ fn get_event_names_list() -> Vec<&'static str> {
 }
 
 use wrap::xlib::Event;
+use wrap::xlib::get_wm_protocols;
+use wrap::xlib::intern_atom;
+use wrap::xlib::send_event;
 use x11::keysym::*;
 use x11::xlib::ButtonPress;
 use x11::xlib::ButtonRelease;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
+use x11::xlib::ClientMessage;
 use x11::xlib::CurrentTime;
 use x11::xlib::DestroyNotify;
 use x11::xlib::Display;
 use x11::xlib::EnterNotify;
 use x11::xlib::EnterWindowMask;
+use x11::xlib::FocusChangeMask;
 use x11::xlib::IsViewable;
 use x11::xlib::KeyPress;
 use x11::xlib::LeaveNotify;
@@ -76,8 +83,10 @@ use x11::xlib::LeaveWindowMask;
 use x11::xlib::MapRequest;
 use x11::xlib::Mod1Mask as ModKey;
 use x11::xlib::MotionNotify;
+use x11::xlib::NoEventMask;
 use x11::xlib::PointerMotionHintMask;
 use x11::xlib::PointerMotionMask;
+use x11::xlib::PropertyChangeMask;
 use x11::xlib::RevertToNone;
 use x11::xlib::RevertToParent;
 use x11::xlib::ShiftMask;
@@ -271,8 +280,7 @@ fn setup() -> ApplicationContainer {
     //    XK_Page_Up,
     //    ModKey,
     //); // maximize window
-    //grab_key(
-    //    display,
+    //grab_key( display,
     //    XK_C,
     //    ModKey | ShiftMask,
     //); // close window
@@ -387,10 +395,10 @@ fn scan(config: &ConfigurationContainer, window_system: &mut WindowSystemContain
 }
 
 fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
-    let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
-    wa.event_mask =
-        LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask | PointerMotionMask;
-    change_window_attributes(window_system.display, win, CWEventMask | CWCursor, &mut wa);
+    // let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
+    // wa.event_mask =
+    //     LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask | PointerMotionMask;
+    // change_window_attributes(window_system.display, win, CWEventMask | CWCursor, &mut wa);
 
     // get name
     // let mut c: *mut i8 = null_mut();
@@ -422,6 +430,8 @@ fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
     // *ci = Some(clients.len());
     // clients.push(ew);
 
+    select_input(window_system.display, win, EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask);
+
     let s = &mut window_system.screens[window_system.current_screen];
     let w = &mut s.workspaces[s.current_workspace];
     w.current_client = Some(w.clients.len());
@@ -444,6 +454,7 @@ fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
 }
 
 fn arrange(ws: &mut WindowSystemContainer) {
+    log!("   |- Arranging...");
     for screen in &mut ws.screens {
         let master_width = (screen.width as f64
             * screen.workspaces[ws.current_workspace].master_width)
@@ -546,12 +557,65 @@ fn shift_current_client(ws: &mut WindowSystemContainer) {
     ws.current_client = ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client;
 }
 
+fn send_atom(ws: &mut WindowSystemContainer, win: u64, e: x11::xlib::Atom) -> bool {
+    if let Some(ps) = get_wm_protocols(ws.display, win) {
+        for p in ps {
+            if p == e {
+                let mut ev = Event {
+                    type_: ClientMessage, 
+                    button: None,
+                    crossing: None, 
+                    key: None, 
+                    map_request: None,
+                    destroy_window: None,
+                    motion: None,
+                    unmap: None,
+                    client: Some(
+                        x11::xlib::XClientMessageEvent {
+                            type_: ClientMessage,
+                            serial: 0,
+                            send_event: 0,
+                            display: null_mut(),
+                            window: win,
+                            message_type: intern_atom(ws.display, "WM_PROTOCOLS".to_string(), false),
+                            format: 32,
+                            data: {
+                                let mut d = x11::xlib::ClientMessageData::new();
+                                d.set_long(0, e as i64);
+                                d.set_long(1, CurrentTime as i64);
+                                d
+                            }
+                        }
+                    )
+                };
+                send_event(ws.display, win, false, NoEventMask, &mut ev);
+                return true;
+            }
+        }
+        return false;
+    } else {
+        return false;
+    }
+}
+
+fn unmanage_window(ws: &mut WindowSystemContainer, win: u64) {
+    if let Some((s, w, c)) = find_window_indexes(ws, win) {
+        log!("   |- Found window {} at indexes {}, {}, {}", win, s, w, c);
+        let clients = &mut ws.screens[s].workspaces[w].clients;
+        clients.remove(c);
+        shift_current_client(ws);
+        arrange(ws);
+    } else {
+        log!("   |- Window is not managed");
+    }
+}
+
 fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContainer) {
     log!("|===== run =====");
     while window_system.running {
         // Process Events
         let ev = next_event(window_system.display);
-        log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
+        // log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
 
         match ev.type_ {
             x11::xlib::KeyPress => {
@@ -567,7 +631,17 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                 match get_current_client_id(window_system) {
                                     Some(id) => {
                                         log!("      |- Killing window {}", id);
-                                        kill_client(window_system.display, id);
+                                        let a = intern_atom(
+                                            window_system.display,
+                                            "WM_DELETE_WINDOW".to_string(),
+                                            false
+                                        );
+                                        send_atom(
+                                            window_system,
+                                            id,
+                                            a
+                                        );
+                                        // kill_client(window_system.display, id);
                                     }
                                     None => {
                                         log!("      |- No window selected");
@@ -662,7 +736,12 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
             x11::xlib::MapRequest => {
                 let ew: u64 = ev.map_request.unwrap().window;
                 log!("|- Map Request From Window: {ew}");
-                manage_client(window_system, ew);
+                if let Some(wa) = get_window_attributes(window_system.display, ew) {
+                    if wa.override_redirect == 0 {
+                        log!("   |- Window can be mapped");
+                        manage_client(window_system, ew);
+                    }
+                }
             }
 
             x11::xlib::EnterNotify => {
@@ -676,19 +755,17 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
             x11::xlib::DestroyNotify => {
                 let ew: u64 = ev.destroy_window.unwrap().window;
                 log!("|- Window {} destroyed", ew);
-                if let Some((s, w, c)) = find_window_indexes(window_system, ew) {
-                    log!("   |- Found window {} at indexes {}, {}, {}", ew, s, w, c);
-                    let clients = &mut window_system.screens[s].workspaces[w].clients;
-                    clients.remove(c);
-                    shift_current_client(window_system);
-                    arrange(window_system);
-                } else {
-                    log!("   |- Window is not managed");
-                }
+                unmanage_window(window_system, ew);
+            }
+
+            x11::xlib::UnmapNotify => {
+                let ew: u64 = ev.unmap.unwrap().window;
+                log!("|- Window {} unmapped", ew);
+                unmanage_window(window_system, ew);
             }
 
             x11::xlib::MotionNotify => {
-                log!("   |- `Motion` detected");
+                log!("|- `Motion` detected");
                 let p = ev.motion.unwrap();
                 let (x, y) = (p.x as i64, p.y as i64);
                 for screen in &window_system.screens {
@@ -698,7 +775,9 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                     }  
                 }
             }
-            _ => {}
+            _ => {
+                // log!("   |- Window is not matched");
+            }
         };
 
         // if ev.type_ == MapRequest {}
@@ -901,6 +980,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
 fn cleanup(app: &mut ApplicationContainer) {}
 
 fn main() {
+    std::env::set_var("RUST_BACKTRACE", "full");
     // Create variables
     // let mut events: Vec<&str>;
     // let mut app.environment.window_system.display: &mut Display;

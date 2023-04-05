@@ -84,6 +84,71 @@ pub mod xlib {
         }
     }
 
+    pub fn get_wm_protocols(display: &mut x11::xlib::Display, w: u64) -> Option<Vec<x11::xlib::Atom>>{
+        unsafe {
+            let mut protocols_return: *mut x11::xlib::Atom = 0 as *mut u64;
+            let mut count_return: i32 = 0;
+            if x11::xlib::XGetWMProtocols(
+                display as *mut x11::xlib::Display,
+                w,
+                &mut protocols_return as *mut *mut x11::xlib::Atom,
+                &mut count_return as *mut i32,
+            ) != 0 {
+                Some(std::slice::from_raw_parts(protocols_return, count_return as usize).to_vec())
+            } else {
+                None
+            }
+        }
+    }
+
+    pub fn intern_atom(display: &mut x11::xlib::Display, atom_name: String, oie: bool) -> x11::xlib::Atom {
+        unsafe {
+            x11::xlib::XInternAtom(
+                display as *mut x11::xlib::Display,
+                atom_name.as_str().as_ptr() as *const i8,
+                oie as i32
+            )
+        }
+    }
+
+    pub fn send_event(display: &mut x11::xlib::Display, w: u64, p: bool, event_mask: i64, event:  &mut Event) {
+        unsafe {
+            let mut xe = xevent();
+            xe.type_ = event.type_;
+            if let Some(e) = event.client {
+                xe.client_message = e;
+            }
+            if let Some(e) = event.key {
+                xe.key = e;
+            }
+            if let Some(e) = event.unmap {
+                xe.unmap = e;
+            }
+            if let Some(e) = event.button {
+                xe.button = e;
+            }
+            if let Some(e) = event.motion {
+                xe.motion = e;
+            }
+            if let Some(e) = event.crossing {
+                xe.crossing = e;
+            }
+            if let Some(e) = event.map_request {
+                xe.map_request = e;
+            }
+            if let Some(e) = event.destroy_window {
+                xe.destroy_window = e;
+            }
+            x11::xlib::XSendEvent(
+                display as *mut x11::xlib::Display,
+                w,
+                p as i32,
+                event_mask, 
+                &mut xe as *mut x11::xlib::XEvent
+            );
+        }
+    }
+
     pub fn get_transient_for_hint(
         display: &mut x11::xlib::Display,
         w: u64,
@@ -123,6 +188,9 @@ pub mod xlib {
                 }
                 x11::xlib::DestroyNotify => {
                     event.destroy_window = Some(ev.destroy_window);
+                }
+                x11::xlib::UnmapNotify => {
+                    event.unmap = Some(ev.unmap);
                 }
                 _ => {}
             };
@@ -200,6 +268,8 @@ pub mod xlib {
         pub map_request: Option<x11::xlib::XMapRequestEvent>,
         pub destroy_window: Option<x11::xlib::XDestroyWindowEvent>,
         pub motion: Option<x11::xlib::XMotionEvent>,
+        pub unmap: Option<x11::xlib::XUnmapEvent>,
+        pub client: Option<x11::xlib::XClientMessageEvent>,
     }
 }
 
