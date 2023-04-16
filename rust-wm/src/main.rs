@@ -61,11 +61,13 @@ fn get_event_names_list() -> Vec<&'static str> {
     ]
 }
 
+use libc::LC_CTYPE;
 use wrap::xlib::get_text_property;
 use wrap::xlib::get_wm_protocols;
 use wrap::xlib::intern_atom;
 use wrap::xlib::send_event;
 use wrap::xlib::Event;
+use wrap::xlib::set_locale;
 use x11::keysym::*;
 use x11::xlib::ButtonPressMask;
 use x11::xlib::CWCursor;
@@ -86,6 +88,7 @@ use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::XSetWindowAttributes;
+use x11::xlib::XSupportsLocale;
 
 use crate::wrap::xinerama::xinerama_query_screens;
 use crate::wrap::xlib::change_property;
@@ -845,6 +848,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
 fn cleanup(_app: &mut ApplicationContainer) {}
 
 fn main() {
+    set_locale(LC_CTYPE, ""); 
     // Init `app` container
     let mut app: ApplicationContainer = setup();
 

@@ -1,6 +1,13 @@
 pub mod xlib {
     use crate::get_default::{xevent, xwindow_attributes};
 
+    pub fn set_locale(c: i32, l: &str) {
+        unsafe {
+            let locale = std::ffi::CString::new(l).unwrap();
+            libc::setlocale(c, locale.as_ptr());
+        }
+    }
+
     pub fn open_display(display_name: Option<&str>) -> Option<&mut x11::xlib::Display> {
         unsafe {
             let result = match display_name {
@@ -362,23 +369,23 @@ pub mod xlib {
                 }
                 println!();
                 name = Some(
-                    std::slice::from_raw_parts(strings_return, amount as usize)
-                        .iter()
-                        .map(|ptr| {
-                            let mut s: Vec<i8> = vec![];
-                            let mut nptr = *ptr;
-                            while *nptr != 0 {
-                                s.push(*nptr);
-                                nptr = nptr.add(1);
-                            }
-                            s.into_iter().map(|c| c as u8 as char).collect()
-                        })
-                        .collect::<Vec<String>>()
-                        .join(""),
-                    // match std::ffi::CStr::from_ptr(*strings_return).to_string_lossy() {
-                    //     std::borrow::Cow::Borrowed(s) => s.to_string(),
-                    //    std::borrow::Cow::Owned(s) => s,
-                    // }
+                    // std::slice::from_raw_parts(strings_return, amount as usize)
+                    //     .iter()
+                    //     .map(|ptr| {
+                    //         let mut s: Vec<i8> = vec![];
+                    //         let mut nptr = *ptr;
+                    //         while *nptr != 0 {
+                    //             s.push(*nptr);
+                    //             nptr = nptr.add(1);
+                    //         }
+                    //         s.into_iter().map(|c| c as u8 as char).collect()
+                    //     })
+                    //     .collect::<Vec<String>>()
+                    //     .join(""),
+                    match std::ffi::CStr::from_ptr(*strings_return).to_string_lossy() {
+                        std::borrow::Cow::Borrowed(s) => s.to_string(),
+                        std::borrow::Cow::Owned(s) => s,
+                    }
                 );
 
                 x11::xlib::XFreeStringList(strings_return);
