@@ -4,9 +4,10 @@
 
 mod get_default;
 mod grab;
+use std::io::WriterPanicked;
 use std::process::Command;
-use std::ptr::null;
 use std::ptr::null_mut;
+use std::vec;
 
 use grab::grab_key;
 
@@ -60,51 +61,42 @@ fn get_event_names_list() -> Vec<&'static str> {
     ]
 }
 
-use wrap::xlib::Event;
+use libc::LC_CTYPE;
+use wrap::xlib::get_text_property;
 use wrap::xlib::get_wm_protocols;
 use wrap::xlib::intern_atom;
 use wrap::xlib::send_event;
+use wrap::xlib::Event;
+use wrap::xlib::set_locale;
 use x11::keysym::*;
-use x11::xlib::ButtonPress;
 use x11::xlib::ButtonPressMask;
-use x11::xlib::ButtonRelease;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
 use x11::xlib::ClientMessage;
 use x11::xlib::CurrentTime;
-use x11::xlib::DestroyNotify;
-use x11::xlib::Display;
-use x11::xlib::EnterNotify;
 use x11::xlib::EnterWindowMask;
 use x11::xlib::FocusChangeMask;
 use x11::xlib::IsViewable;
-use x11::xlib::KeyPress;
-use x11::xlib::LeaveNotify;
 use x11::xlib::LeaveWindowMask;
-use x11::xlib::MapRequest;
 use x11::xlib::Mod1Mask as ModKey;
-use x11::xlib::MotionNotify;
 use x11::xlib::NoEventMask;
-use x11::xlib::PointerMotionHintMask;
 use x11::xlib::PointerMotionMask;
 use x11::xlib::PropertyChangeMask;
 use x11::xlib::RevertToNone;
-use x11::xlib::RevertToParent;
 use x11::xlib::ShiftMask;
 use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
-use x11::xlib::XButtonEvent;
 use x11::xlib::XSetWindowAttributes;
-use x11::xlib::XWindowAttributes;
+use x11::xlib::XSupportsLocale;
 
 use crate::wrap::xinerama::xinerama_query_screens;
+use crate::wrap::xlib::change_property;
 use crate::wrap::xlib::change_window_attributes;
 use crate::wrap::xlib::default_root_window;
 use crate::wrap::xlib::get_transient_for_hint;
 use crate::wrap::xlib::get_window_attributes;
 use crate::wrap::xlib::keysym_to_keycode;
-use crate::wrap::xlib::kill_client;
 use crate::wrap::xlib::map_window;
 use crate::wrap::xlib::move_resize_window;
 use crate::wrap::xlib::next_event;
@@ -113,7 +105,6 @@ use crate::wrap::xlib::query_tree;
 use crate::wrap::xlib::raise_window;
 use crate::wrap::xlib::select_input;
 use crate::wrap::xlib::set_input_focus;
-use crate::wrap::xlib::set_window_border_width;
 
 use crate::structs::*;
 
@@ -245,7 +236,7 @@ fn setup() -> ApplicationContainer {
                 modifier: ModKey | ShiftMask,
                 keysym: XK_period,
                 result: ActionResult::MoveToScreen(ScreenSwitching::Next),
-            }
+            },
         ];
 
         for (index, key) in vec![XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
@@ -285,50 +276,6 @@ fn setup() -> ApplicationContainer {
         "|- Loaded {} `Actions`",
         app.environment.config.key_actions.len()
     );
-
-    //grab_key(
-    //    display,
-    //    XK_Return,
-    //    ModKey | ShiftMask,
-    //); // Move to top
-    //grab_key(
-    //    display,
-    //    XK_Return,
-    //    ModKey,
-    //); // Spawn alacritty
-    //grab_key(
-    //    display,
-    //    XK_Q,
-    //    ModKey | ShiftMask,
-    //); // Exit rust-wm
-    //grab_key(
-    //    display,
-    //    XK_p,
-    //    ModKey,
-    //); // Run dmenu
-    //grab_key(
-    //    display,
-    //    XK_Page_Up,
-    //    ModKey,
-    //); // maximize window
-    //grab_key( display,
-    //    XK_C,
-    //    ModKey | ShiftMask,
-    //); // close window
-    //grab_key(
-    //    display,
-    //    XK_Tab,
-    //    ModKey,
-    //); // Cycle Through Windows
-    //grab_key(
-    //    display,
-    //    XK_l,
-    //    ModKey,
-    //); // Query current window information
-
-    //grab_button(app.environment.window_system.display, 1, ModKey); // Move window
-    //grab_button(app.environment.window_system.display, 2, ModKey); // Focus window
-    //grab_button(app.environment.window_system.display, 3, ModKey); // Resize window
 
     // TODO: Load layout_rules
 
@@ -374,6 +321,37 @@ fn setup() -> ApplicationContainer {
     // TODO: Init Api
 
     // Setup WM with X server info
+
+    let mut netatoms: Vec<x11::xlib::Atom> = vec![];
+    for name in [
+        "_NET_ACTIVE_WINDOW",
+        "_NET_SUPPORTED",
+        "_NET_WM_NAME",
+        "_NET_SUPPORTING_WM_CHECK",
+        "_NET_WM_STATE_FULLSCREEN",
+        "_NET_WM_WINDOW_TYPE",
+        "_NET_WM_WINDOW_TYPE_DIALOG",
+        "_NET_CLIENT_LIST",
+        "_NET_WM_STATE",
+    ] {
+        netatoms.push(intern_atom(
+            app.environment.window_system.display,
+            name.to_string(),
+            false,
+        ));
+    }
+
+    let net_supported = intern_atom(app.environment.window_system.display, "_NET_SUPPORTED".to_string(), false);
+    change_property(
+        app.environment.window_system.display,
+        app.environment.window_system.root_win,
+        net_supported,
+        x11::xlib::XA_ATOM,
+        32,
+        x11::xlib::PropModeReplace,
+        &mut netatoms,
+    );
+
     let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
     wa.event_mask = SubstructureRedirectMask
         | LeaveWindowMask
@@ -402,7 +380,7 @@ fn setup() -> ApplicationContainer {
     app
 }
 
-fn scan(config: &ConfigurationContainer, window_system: &mut WindowSystemContainer) {
+fn scan(_config: &ConfigurationContainer, window_system: &mut WindowSystemContainer) {
     log!("|===== scan =====");
     let (mut rw, _, wins) = query_tree(window_system.display, window_system.root_win);
 
@@ -428,51 +406,31 @@ fn scan(config: &ConfigurationContainer, window_system: &mut WindowSystemContain
     }
 }
 
+fn update_client_name(window_system: &mut WindowSystemContainer, win: u64) {
+    let name_atom = intern_atom(window_system.display, "_NET_WM_NAME".to_string(), false);
+    let name = match get_text_property(window_system.display, win, name_atom) {
+        Some(name) => name,
+        None => "WHAT THE FUCK".to_string(),
+    };
+
+    if let Some((s, w, c)) = find_window_indexes(window_system, win) {
+        window_system.screens[s].workspaces[w].clients[c].window_name = name;
+    }
+}
+
 fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
-    // let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
-    // wa.event_mask =
-    //     LeaveWindowMask | EnterWindowMask | SubstructureNotifyMask | StructureNotifyMask | PointerMotionMask;
-    // change_window_attributes(window_system.display, win, CWEventMask | CWCursor, &mut wa);
-
-    // get name
-    // let mut c: *mut i8 = null_mut();
-    // if XFetchName(app.environment.window_system.display, ew, get_mut_ptr(&mut c)) == True {
-    //     println!("      |- Got window name: {:?}", CStr::from_ptr(c).to_str());
-    //     libc::free(c as *mut libc::c_void);
-    // } else {
-    //     println!("      |- Failed to get window name");
-    // }
-    // // get class
-    // let ch: *mut XClassHint = XAllocClassHint();
-    // if XGetClassHint(app.environment.window_system.display, ew, ch) == True {
-    //     println!("      |- Got window class");
-    //     println!(
-    //         "         |- name: {:?}",
-    //         CStr::from_ptr((*ch).res_name).to_str()
-    //     );
-    //     println!(
-    //         "         |- class: {:?}",
-    //         CStr::from_ptr((*ch).res_class).to_str()
-    //     );
-    //     XFree((*ch).res_name as *mut libc::c_void);
-    //     XFree((*ch).res_class as *mut libc::c_void);
-    // } else {
-    //     println!("      |- Failed To Get Window Class");
-    // }
-
-    // *cw = ew;
-    // *ci = Some(clients.len());
-    // clients.push(ew);
-
-    select_input(window_system.display, win, EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask);
-
+    select_input(
+        window_system.display,
+        win,
+        EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
+    );
     let s = &mut window_system.screens[window_system.current_screen];
     let w = &mut s.workspaces[s.current_workspace];
     w.current_client = Some(w.clients.len());
     window_system.current_client = w.current_client;
     w.clients.push(Client {
         window_id: win,
-        window_name: "Window".to_string(),
+        window_name: "Unmanaged window".to_string(),
         x: 0,
         y: 0,
         w: 1920,
@@ -481,7 +439,7 @@ fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
         px: 0,
         py: 0,
     });
-
+    update_client_name(window_system, win);
     raise_window(window_system.display, win);
     arrange(window_system);
     map_window(window_system.display, win);
@@ -490,13 +448,17 @@ fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
 fn arrange(ws: &mut WindowSystemContainer) {
     log!("   |- Arranging...");
     for screen in &mut ws.screens {
-        let master_width = (screen.width as f64
-            * screen.workspaces[screen.current_workspace].master_width)
-            as u32;
+        let master_width =
+            (screen.width as f64 * screen.workspaces[screen.current_workspace].master_width) as u32;
         let master_size = screen.workspaces[screen.current_workspace].master_size;
         let stack_size = screen.workspaces[screen.current_workspace].clients.len();
         log!("   |- Arranging {} window", stack_size);
-        for (index, client) in screen.workspaces[screen.current_workspace].clients.iter_mut().rev().enumerate() {
+        for (index, client) in screen.workspaces[screen.current_workspace]
+            .clients
+            .iter_mut()
+            .rev()
+            .enumerate()
+        {
             if stack_size == 1 {
                 client.x = 0;
                 client.y = 0;
@@ -506,20 +468,31 @@ fn arrange(ws: &mut WindowSystemContainer) {
                 if (index as i64) < master_size {
                     log!("      |- Goes to master");
                     client.x = 0;
-                    client.y = ((index as f64) * (screen.height as f64) / (master_size as f64)) as i32;
+                    client.y =
+                        ((index as f64) * (screen.height as f64) / (master_size as f64)) as i32;
                     client.w = master_width;
                     client.h = ((screen.height as f64) / (master_size as f64)) as u32;
                 } else {
                     log!("      |- Goes to stack");
                     client.x = master_width as i32;
-                    client.y = ((index as i64 - master_size) as f64 * (screen.height as f64) / (stack_size as i64 - master_size) as f64) as i32;
+                    client.y = ((index as i64 - master_size) as f64 * (screen.height as f64)
+                        / (stack_size as i64 - master_size) as f64)
+                        as i32;
                     client.w = screen.width as u32 - master_width;
-                    client.h = ((screen.height as f64) / (stack_size as i64 - master_size) as f64) as u32;
+                    client.h =
+                        ((screen.height as f64) / (stack_size as i64 - master_size) as f64) as u32;
                 }
             }
         }
         for client in &screen.workspaces[screen.current_workspace].clients {
-            move_resize_window(ws.display, client.window_id, client.x + screen.x as i32, client.y + screen.y as i32, client.w, client.h);
+            move_resize_window(
+                ws.display,
+                client.window_id,
+                client.x + screen.x as i32,
+                client.y + screen.y as i32,
+                client.w,
+                client.h,
+            );
         }
     }
 }
@@ -531,14 +504,19 @@ fn update_current_client(window_system: &mut WindowSystemContainer, win: u64) {
         Some(index) => {
             w.current_client = Some(index);
             window_system.current_client = Some(index);
-        },
-        None => {},
+        }
+        None => {}
     }
 }
 
 fn get_current_client_id(window_system: &mut WindowSystemContainer) -> Option<u64> {
     match window_system.current_client {
-        Some(index) => Some(window_system.screens[window_system.current_screen].workspaces[window_system.current_workspace].clients[index].window_id),
+        Some(index) => Some(
+            window_system.screens[window_system.current_screen].workspaces
+                [window_system.current_workspace]
+                .clients[index]
+                .window_id,
+        ),
         None => None,
     }
 }
@@ -562,9 +540,23 @@ fn find_window_indexes(
 fn show_hide_workspace(ws: &mut WindowSystemContainer) {
     for client in &mut ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients {
         if client.visible {
-            move_resize_window(ws.display, client.window_id, client.w as i32 * -1, client.h as i32 * -1, client.w, client.h);
+            move_resize_window(
+                ws.display,
+                client.window_id,
+                client.w as i32 * -1,
+                client.h as i32 * -1,
+                client.w,
+                client.h,
+            );
         } else {
-            move_resize_window(ws.display, client.window_id, client.x, client.y, client.w, client.h);
+            move_resize_window(
+                ws.display,
+                client.window_id,
+                client.x,
+                client.y,
+                client.w,
+                client.h,
+            );
         }
         client.visible = !client.visible;
     }
@@ -588,7 +580,8 @@ fn shift_current_client(ws: &mut WindowSystemContainer) {
             }
         }
     };
-    ws.current_client = ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client;
+    ws.current_client =
+        ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client;
 }
 
 fn send_atom(ws: &mut WindowSystemContainer, win: u64, e: x11::xlib::Atom) -> bool {
@@ -596,31 +589,30 @@ fn send_atom(ws: &mut WindowSystemContainer, win: u64, e: x11::xlib::Atom) -> bo
         for p in ps {
             if p == e {
                 let mut ev = Event {
-                    type_: ClientMessage, 
+                    type_: ClientMessage,
                     button: None,
-                    crossing: None, 
-                    key: None, 
+                    crossing: None,
+                    key: None,
                     map_request: None,
                     destroy_window: None,
                     motion: None,
                     unmap: None,
-                    client: Some(
-                        x11::xlib::XClientMessageEvent {
-                            type_: ClientMessage,
-                            serial: 0,
-                            send_event: 0,
-                            display: null_mut(),
-                            window: win,
-                            message_type: intern_atom(ws.display, "WM_PROTOCOLS".to_string(), false),
-                            format: 32,
-                            data: {
-                                let mut d = x11::xlib::ClientMessageData::new();
-                                d.set_long(0, e as i64);
-                                d.set_long(1, CurrentTime as i64);
-                                d
-                            }
-                        }
-                    )
+                    property: None,
+                    client: Some(x11::xlib::XClientMessageEvent {
+                        type_: ClientMessage,
+                        serial: 0,
+                        send_event: 0,
+                        display: null_mut(),
+                        window: win,
+                        message_type: intern_atom(ws.display, "WM_PROTOCOLS".to_string(), false),
+                        format: 32,
+                        data: {
+                            let mut d = x11::xlib::ClientMessageData::new();
+                            d.set_long(0, e as i64);
+                            d.set_long(1, CurrentTime as i64);
+                            d
+                        },
+                    }),
                 };
                 send_event(ws.display, win, false, NoEventMask, &mut ev);
                 return true;
@@ -649,7 +641,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
     while window_system.running {
         // Process Events
         let ev = next_event(window_system.display);
-       // log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
+        // log!("|- Got event {}", get_event_names_list()[ev.type_ as usize]);
 
         match ev.type_ {
             x11::xlib::KeyPress => {
@@ -668,13 +660,9 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                         let a = intern_atom(
                                             window_system.display,
                                             "WM_DELETE_WINDOW".to_string(),
-                                            false
+                                            false,
                                         );
-                                        send_atom(
-                                            window_system,
-                                            id,
-                                            a
-                                        );
+                                        send_atom(window_system, id, a);
                                         // kill_client(window_system.display, id);
                                     }
                                     None => {
@@ -699,39 +687,60 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                     cs = match d {
                                         ScreenSwitching::Next => {
                                             (cs + 1) % window_system.screens.len()
-                                        },
+                                        }
                                         ScreenSwitching::Previous => {
-                                            (cs + window_system.screens.len() - 1) % window_system.screens.len()
-                                        },
+                                            (cs + window_system.screens.len() - 1)
+                                                % window_system.screens.len()
+                                        }
                                     };
-                                    let cc = window_system.screens[window_system.current_screen].workspaces[window_system.current_workspace].clients.remove(index);
-                                    window_system.screens[window_system.current_screen].workspaces[cs].clients.push(cc);
+                                    let cc = window_system.screens[window_system.current_screen]
+                                        .workspaces[window_system.current_workspace]
+                                        .clients
+                                        .remove(index);
+                                    shift_current_client(window_system);
+                                    let nw = window_system.screens[cs].current_workspace;
+                                    window_system.screens[cs].workspaces[nw].clients.push(cc);
                                     arrange(window_system);
                                 }
                             }
                             ActionResult::FocusOnScreen(d) => {
                                 let mut cs = window_system.current_screen;
                                 cs = match d {
-                                    ScreenSwitching::Next => {
-                                        (cs + 1) % window_system.screens.len()
-                                    },
+                                    ScreenSwitching::Next => (cs + 1) % window_system.screens.len(),
                                     ScreenSwitching::Previous => {
-                                        (cs + window_system.screens.len() - 1) % window_system.screens.len()
-                                    },
+                                        (cs + window_system.screens.len() - 1)
+                                            % window_system.screens.len()
+                                    }
                                 };
                                 window_system.current_screen = cs;
-                                window_system.current_workspace = window_system.screens[window_system.current_screen].current_workspace;
+                                window_system.current_workspace = window_system.screens
+                                    [window_system.current_screen]
+                                    .current_workspace;
                             }
                             ActionResult::MoveToWorkspace(n) => {
                                 log!("   |- Got `MoveToWorkspace` Action ");
                                 if *n as usize != window_system.current_workspace {
                                     if let Some(index) = window_system.current_client {
-                                        let mut cc = window_system.screens[window_system.current_screen].workspaces[window_system.current_workspace].clients.remove(index);
+                                        let mut cc = window_system.screens
+                                            [window_system.current_screen]
+                                            .workspaces[window_system.current_workspace]
+                                            .clients
+                                            .remove(index);
                                         arrange(window_system);
-                                        move_resize_window(window_system.display, cc.window_id, cc.w as i32 * -1, cc.h as i32 * -1, cc.w, cc.h);
+                                        move_resize_window(
+                                            window_system.display,
+                                            cc.window_id,
+                                            cc.w as i32 * -1,
+                                            cc.h as i32 * -1,
+                                            cc.w,
+                                            cc.h,
+                                        );
                                         cc.visible = !cc.visible;
                                         shift_current_client(window_system);
-                                        window_system.screens[window_system.current_screen].workspaces[*n as usize].clients.push(cc);
+                                        window_system.screens[window_system.current_screen]
+                                            .workspaces[*n as usize]
+                                            .clients
+                                            .push(cc);
                                     }
                                 }
                             }
@@ -740,7 +749,12 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                 if *n as usize != window_system.current_workspace {
                                     show_hide_workspace(window_system);
                                     window_system.current_workspace = *n as usize;
-                                    window_system.screens[window_system.current_screen].current_workspace = *n as usize;
+                                    window_system.screens[window_system.current_screen]
+                                        .current_workspace = *n as usize;
+                                    window_system.current_client = window_system.screens
+                                        [window_system.current_screen]
+                                        .workspaces[window_system.current_workspace]
+                                        .current_client;
                                     show_hide_workspace(window_system);
                                     arrange(window_system);
                                 }
@@ -763,8 +777,8 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                     .master_width += *w;
                             }
                             ActionResult::DumpInfo() => {
-                                log!("{:#?}", window_system.screens);
-                            },
+                                log!("{:#?}", &window_system);
+                            }
                         }
                     }
                 }
@@ -787,8 +801,10 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                 log!("   |- Setting focus to window");
                 set_input_focus(window_system.display, ew, RevertToNone, CurrentTime);
                 update_current_client(window_system, ew);
-                if let Some((s, _, _)) = find_window_indexes(window_system, ew) {
+                if let Some((s, w, c)) = find_window_indexes(window_system, ew) {
                     window_system.current_screen = s;
+                    window_system.current_workspace = w;
+                    window_system.current_client = Some(c);
                 };
             }
 
@@ -807,258 +823,32 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                 log!("|- `Motion` detected");
                 let p = ev.motion.unwrap();
                 let (x, y) = (p.x as i64, p.y as i64);
-  //              log!("Pointer: {x}, {y}");
                 for screen in &window_system.screens {
-    //                log!("Screen: {}, {} {}x{}", screen.x, screen.y, screen.width, screen.height);
-                    if screen.x <= x && x < screen.x + screen.width
-                        && screen.y <= y && y < screen.y + screen.height {
-      //                      log!("Matched!!");
-                            window_system.current_screen = screen.number as usize;
-                    }  
+                    if screen.x <= x
+                        && x < screen.x + screen.width
+                        && screen.y <= y
+                        && y < screen.y + screen.height
+                    {
+                        window_system.current_screen = screen.number as usize;
+                    }
                 }
             }
-            _ => {
-                // log!("   |- Window is not matched");
+            x11::xlib::PropertyNotify => {
+                let p = ev.property.unwrap();
+                if p.window != window_system.root_win {
+                    log!("|- `Property` changed");
+                    update_client_name(window_system, p.window);
+                }
             }
+            _ => {}
         };
-
-        // if ev.type_ == MapRequest {}
-
-        // if ev.type_ == EnterNotify {
-        //     let ew: u64 = ev.crossing.unwrap().window;
-
-        //     println!("      |- Window Id: {}", ew);
-
-        //     // let mut c: *mut i8 = null_mut();
-        //     // if XFetchName(app.environment.window_system.display, ew, get_mut_ptr(&mut c)) == True {
-        //     //     println!(
-        //     //         "         |- Got Window Name: {:?}",
-        //     //         CStr::from_ptr(c).to_str()
-        //     //     );
-        //     //     libc::free(c as *mut libc::c_void);
-        //     // } else {
-        //     //     println!("         |- Failed to get window name");
-        //     // }
-
-        //     // println!("         |- Raising window");
-        //     // XRaiseWindow(app.environment.window_system.display, ew);
-        // }
-        // if ev.type_ == LeaveNotify {
-        //     let ew: u64 = ev.crossing.unwrap().window;
-
-        //     println!("      |- Window id: {}", ew);
-        // }
-        // if ev.type_ == DestroyNotify {}
-        // println!("   |- Got Event Of Type \"{}\"", events[ev.type_ as usize]);
-        //if ev.type_ == KeyPress {
-        //    let key = ev.key.unwrap();
-        //    let _ew: u64 = key.window;
-
-        //    if key.state == ModKey {
-        //        if key.keycode
-        //            == keysym_to_keycode(app.environment.window_system.display, XK_Return)
-        //        {
-        //            println!("   |- Spawning Terminal");
-        //            let mut handle = Command::new("kitty").spawn().expect("can't run kitty");
-        //            std::thread::spawn(move || {
-        //                handle.wait().expect("can't run process");
-        //            });
-        //        }
-        //        if key.keycode
-        //            == keysym_to_keycode(app.environment.window_system.display, XK_p)
-        //        {
-        //            println!("   |- Spawning Dmenu");
-        //            Command::new("dmenu_run").spawn().unwrap().wait().unwrap();
-        //        }
-        //        if key.keycode
-        //            == keysym_to_keycode(
-        //                app.environment.window_system.display,
-        //                XK_Page_Up,
-        //            )
-        //        {
-        //            println!("   |- Maximazing Window: {current_win}");
-        //            move_resize_window(
-        //                app.environment.window_system.display,
-        //                current_win,
-        //                0,
-        //                0,
-        //                1920,
-        //                1080,
-        //            );
-        //            set_window_border_width(
-        //                app.environment.window_system.display,
-        //                current_win,
-        //                0,
-        //            );
-        //        }
-        //        if key.keycode
-        //            == keysym_to_keycode(app.environment.window_system.display, XK_Tab)
-        //        {
-        //            if clients.len() > 1 {
-        //                println!("   |- Cycling to previous windows...(Hopefully)");
-        //                println!("   |- Current clients are {:?}", clients);
-        //                let index = client_index.unwrap();
-        //                // XMoveWindow(app.environment.window_system.display, clients[index], -1920, -1080);
-        //                client_index = Some((index + 1) % clients.len());
-        //                let index = client_index.unwrap();
-        //                raise_window(
-        //                    app.environment.window_system.display,
-        //                    clients[index],
-        //                );
-        //                // XMoveWindow(app.environment.window_system.display, clients[index], 0, 0);
-        //            } else {
-        //                println!("   |- No windows. Skipping")
-        //            }
-        //        }
-        //        if key.keycode
-        //            == keysym_to_keycode(app.environment.window_system.display, XK_l)
-        //        {
-        //            println!("   |- Current window is {current_win}");
-        //            println!("   |- Current Clients are {clients:?}")
-        //        }
-        //    }
-        //    if key.state == MOD_KEY_SHIFT {
-        //        if key.keycode
-        //            == keysym_to_keycode(app.environment.window_system.display, XK_C)
-        //        {
-        //            println!("   |- Killing Window: {current_win}");
-        //            clients.retain(|&client| client != current_win);
-        //            kill_client(app.environment.window_system.display, current_win);
-        //        };
-        //        if key.keycode
-        //            == keysym_to_keycode(app.environment.window_system.display, XK_Q)
-        //        {
-        //            println!("   |- Exiting Window Manager");
-        //            break;
-        //        }
-        //    }
-        //}
-        //if ev.type_ == ButtonPress {
-        //    let button = ev.button.unwrap();
-        //    let ew = button.subwindow;
-        //    if button.subwindow != 0 {
-        //        if button.button == 2 {
-        //            println!("   |- Selecting Window: {ew}");
-        //            raise_window(app.environment.window_system.display, ew);
-        //            set_input_focus(
-        //                app.environment.window_system.display,
-        //                ew,
-        //                RevertToParent,
-        //                CurrentTime,
-        //            );
-        //            // add window decoration
-        //            // XSetWindowBorderWidth(app.environment.window_system.display, ew, 2);
-        //            // XSetWindowBorder(app.environment.window_system.display, ew, argb_to_int(0, 98, 114, 164));
-        //        } else {
-        //            println!("   |- Started Grabbing Window: {ew}");
-        //            attr = get_window_attributes(
-        //                app.environment.window_system.display,
-        //                button.subwindow,
-        //            )
-        //            .unwrap();
-        //            start = button;
-        //        }
-        //    }
-        //}
-        //if ev.type_ == MotionNotify {
-        //    let motion = ev.motion.unwrap();
-        //    let button = ev.button.unwrap();
-        //    let ew: u64 = motion.window;
-
-        //    println!("   |- Window id: {ew}");
-
-        //    if button.subwindow != 0 && start.subwindow != 0 {
-        //        println!("   |- Resizing OR Moving Window");
-        //        let x_diff: i32 = button.x_root - start.x_root;
-        //        let y_diff: i32 = button.y_root - start.y_root;
-        //        move_resize_window(
-        //            app.environment.window_system.display,
-        //            start.subwindow,
-        //            attr.x + {
-        //                if start.button == 1 {
-        //                    x_diff
-        //                } else {
-        //                    0
-        //                }
-        //                // Get u32 keycode from keysym
-        //            },
-        //            attr.y + {
-        //                if start.button == 1 {
-        //                    y_diff
-        //                } else {
-        //                    0
-        //                }
-        //            },
-        //            1.max(
-        //                (attr.width + {
-        //                    if start.button == 3 {
-        //                        x_diff
-        //                    } else {
-        //                        0
-        //                    }
-        //                }) as u32,
-        //            ),
-        //            1.max(
-        //                (attr.height + {
-        //                    if start.button == 3 {
-        //                        y_diff
-        //                    } else {
-        //                        0
-        //                    }
-        //                }) as u32,
-        //            ),
-        //        );
-        //    } else {
-        //        println!("   |- Just Moving");
-        //        // XSetInputFocus(app.environment.window_system.display, win, RevertToNone, CurrentTime);
-        //    }
-        //}
-        //if ev.type_ == ButtonRelease {
-        //    start.subwindow = 0;
-        //}
     }
 }
 
-fn cleanup(app: &mut ApplicationContainer) {}
+fn cleanup(_app: &mut ApplicationContainer) {}
 
 fn main() {
-    std::env::set_var("RUST_BACKTRACE", "full");
-    // Create variables
-    // let mut events: Vec<&str>;
-    // let mut app.environment.window_system.display: &mut Display;
-    // let mut root_win: u64;
-    // let mut client: Vec<u64>;
-    // let mut monitors: Vec<(u64, i64, i64, u64, u64)>;
-
-    // println!("Started Window Manager");
-    //    unsafe {
-    // let events: Vec<&str> = get_event_names_list();
-    // println!("|- Created Event Look-Up Array");
-
-    // let app.environment.window_system.display: &mut Display = open_display(None).expect("Error opening display!");
-    // println!("|- Opened X Display");
-
-    // let root_win: u64 = default_root_window(app.environment.window_system.display);
-    // println!(
-    // "|- Root window is {}",
-    // app.environment.window_system.root_win
-    // );
-
-    // let mut attr: XWindowAttributes = get_default::xwindow_attributes();
-    // let mut start: XButtonEvent = get_default::xbutton_event();
-    // start.subwindow = 0;
-
-    // let mut clients: Vec<u64> = Vec::new();
-    // let mut client_index: Option<usize> = None;
-    // let mut current_win: u64 = 0;
-
-    // println!("|- Created Useful Variables");
-
-    // println!("|- Applied Event Mask");
-
-    // println!("|- Grabbed Shortcuts");
-    // println!("|- Starting Main Loop");
-
+    set_locale(LC_CTYPE, ""); 
     // Init `app` container
     let mut app: ApplicationContainer = setup();
 

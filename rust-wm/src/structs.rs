@@ -61,6 +61,20 @@ pub struct WindowSystemContainer {
     pub running: bool,
 }
 
+impl std::fmt::Debug for WindowSystemContainer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WindowSystemContainer")
+            .field("status_bar", &self.status_bar)
+            .field("screens", &self.screens)
+            .field("current_screen", &self.current_screen)
+            .field("current_workspace", &self.current_workspace)
+            .field("current_client", &self.current_client)
+            .field("display", &"no_display")
+            .field("root_win", &self.root_win)
+            .field("running", &self.running)
+            .finish()
+    }
+}
 
 #[derive(Debug)]
 pub struct StatusBarContainer {}

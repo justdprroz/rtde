@@ -1,6 +1,13 @@
 pub mod xlib {
     use crate::get_default::{xevent, xwindow_attributes};
 
+    pub fn set_locale(c: i32, l: &str) {
+        unsafe {
+            let locale = std::ffi::CString::new(l).unwrap();
+            libc::setlocale(c, locale.as_ptr());
+        }
+    }
+
     pub fn open_display(display_name: Option<&str>) -> Option<&mut x11::xlib::Display> {
         unsafe {
             let result = match display_name {
@@ -84,7 +91,10 @@ pub mod xlib {
         }
     }
 
-    pub fn get_wm_protocols(display: &mut x11::xlib::Display, w: u64) -> Option<Vec<x11::xlib::Atom>>{
+    pub fn get_wm_protocols(
+        display: &mut x11::xlib::Display,
+        w: u64,
+    ) -> Option<Vec<x11::xlib::Atom>> {
         unsafe {
             let mut protocols_return: *mut x11::xlib::Atom = 0 as *mut u64;
             let mut count_return: i32 = 0;
@@ -93,7 +103,8 @@ pub mod xlib {
                 w,
                 &mut protocols_return as *mut *mut x11::xlib::Atom,
                 &mut count_return as *mut i32,
-            ) != 0 {
+            ) != 0
+            {
                 Some(std::slice::from_raw_parts(protocols_return, count_return as usize).to_vec())
             } else {
                 None
@@ -101,17 +112,27 @@ pub mod xlib {
         }
     }
 
-    pub fn intern_atom(display: &mut x11::xlib::Display, atom_name: String, oie: bool) -> x11::xlib::Atom {
+    pub fn intern_atom(
+        display: &mut x11::xlib::Display,
+        atom_name: String,
+        oie: bool,
+    ) -> x11::xlib::Atom {
         unsafe {
             x11::xlib::XInternAtom(
                 display as *mut x11::xlib::Display,
                 atom_name.as_str().as_ptr() as *const i8,
-                oie as i32
+                oie as i32,
             )
         }
     }
 
-    pub fn send_event(display: &mut x11::xlib::Display, w: u64, p: bool, event_mask: i64, event:  &mut Event) {
+    pub fn send_event(
+        display: &mut x11::xlib::Display,
+        w: u64,
+        p: bool,
+        event_mask: i64,
+        event: &mut Event,
+    ) {
         unsafe {
             let mut xe = xevent();
             xe.type_ = event.type_;
@@ -143,8 +164,8 @@ pub mod xlib {
                 display as *mut x11::xlib::Display,
                 w,
                 p as i32,
-                event_mask, 
-                &mut xe as *mut x11::xlib::XEvent
+                event_mask,
+                &mut xe as *mut x11::xlib::XEvent,
             );
         }
     }
@@ -192,6 +213,9 @@ pub mod xlib {
                 x11::xlib::UnmapNotify => {
                     event.unmap = Some(ev.unmap);
                 }
+                x11::xlib::PropertyNotify => {
+                    event.property = Some(ev.property);
+                }
                 _ => {}
             };
             event
@@ -218,6 +242,7 @@ pub mod xlib {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_window_border_width(display: &mut x11::xlib::Display, w: u64, width: u32) {
         unsafe {
             x11::xlib::XSetWindowBorderWidth(display as *mut x11::xlib::Display, w, width);
@@ -230,6 +255,7 @@ pub mod xlib {
         }
     }
 
+    #[allow(dead_code)]
     pub fn kill_client(display: &mut x11::xlib::Display, w: u64) {
         unsafe {
             x11::xlib::XKillClient(display as *mut x11::xlib::Display, w);
@@ -270,6 +296,104 @@ pub mod xlib {
         pub motion: Option<x11::xlib::XMotionEvent>,
         pub unmap: Option<x11::xlib::XUnmapEvent>,
         pub client: Option<x11::xlib::XClientMessageEvent>,
+        pub property: Option<x11::xlib::XPropertyEvent>,
+    }
+
+    pub fn change_property<T>(
+        display: &mut x11::xlib::Display,
+        w: u64,
+        property: x11::xlib::Atom,
+        type_: x11::xlib::Atom,
+        format: i32,
+        mode: i32,
+        data: &mut Vec<T>,
+    ) {
+        unsafe {
+            x11::xlib::XChangeProperty(
+                display as *mut x11::xlib::Display,
+                w,
+                property,
+                type_,
+                format,
+                mode,
+                data.as_mut_ptr() as *mut u8,
+                data.len() as i32,
+            );
+        }
+    }
+
+    pub fn get_text_property(
+        display: &mut x11::xlib::Display,
+        w: u64,
+        a: x11::xlib::Atom,
+    ) -> Option<String> {
+        unsafe {
+            let mut tr: x11::xlib::XTextProperty = x11::xlib::XTextProperty { value: 0x0 as *mut u8, encoding: 0, format: 0, nitems: 0 };
+            let mut strings_return = 0 as *mut *mut i8;
+            let mut amount = 0;
+
+            if x11::xlib::XGetTextProperty(
+                display as *mut x11::xlib::Display,
+                w,
+                &mut tr as *mut x11::xlib::XTextProperty,
+                a,
+            ) == 0
+                || tr.nitems == 0
+            {
+                return None;
+            }
+
+            let mut name: Option<String> = None;
+
+            if tr.encoding == x11::xlib::XA_STRING {
+                name = Some(
+                    match std::ffi::CStr::from_ptr(tr.value as *const i8).to_string_lossy() {
+                        std::borrow::Cow::Borrowed(s) => s.to_string(),
+                        std::borrow::Cow::Owned(s) => s,
+                    },
+                );
+            } else if x11::xlib::XmbTextPropertyToTextList(
+                display as *mut x11::xlib::Display,
+                &mut tr as *mut x11::xlib::XTextProperty,
+                &mut strings_return as *mut *mut *mut i8,
+                &mut amount as *mut i32,
+            ) >= x11::xlib::Success as i32
+                && amount > 0
+                && *strings_return != 0x0 as *mut i8
+            {
+                println!("{amount}");
+                let mut nptr = *strings_return;
+                while *nptr != 0 {
+                    print!("{:x},", *nptr);
+                    nptr = nptr.add(1);
+                }
+                println!();
+                name = Some(
+                    // std::slice::from_raw_parts(strings_return, amount as usize)
+                    //     .iter()
+                    //     .map(|ptr| {
+                    //         let mut s: Vec<i8> = vec![];
+                    //         let mut nptr = *ptr;
+                    //         while *nptr != 0 {
+                    //             s.push(*nptr);
+                    //             nptr = nptr.add(1);
+                    //         }
+                    //         s.into_iter().map(|c| c as u8 as char).collect()
+                    //     })
+                    //     .collect::<Vec<String>>()
+                    //     .join(""),
+                    match std::ffi::CStr::from_ptr(*strings_return).to_string_lossy() {
+                        std::borrow::Cow::Borrowed(s) => s.to_string(),
+                        std::borrow::Cow::Owned(s) => s,
+                    }
+                );
+
+                x11::xlib::XFreeStringList(strings_return);
+            }
+
+            x11::xlib::XFree(tr.value as *mut libc::c_void);
+            name
+        }
     }
 }
 
