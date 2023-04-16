@@ -4,15 +4,15 @@ version = 3
 
 [[package]]
 name = "libc"
-version = "0.2.133"
+version = "0.2.141"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0f80d65747a3e43d1596c7c5492d95d5edddaabd45a7fcdb02b95f644164966"
+checksum = "3304a64d199bb964be99741b7a14d26972741915b3649639149b2479bb46f4b5"
 
 [[package]]
 name = "pkg-config"
-version = "0.3.25"
+version = "0.3.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1df8c4ec4b0627e53bdf214615ad287367e482558cf84b109250b37464dc03ae"
+checksum = "6ac9a59f73473f1b8d852421e59e64809f025994837ef743615c6d0c5b305160"
 
 [[package]]
 name = "rust-wm"
@@ -24,9 +24,9 @@ dependencies = [
 
 [[package]]
 name = "x11"
-version = "2.20.0"
+version = "2.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7ae97874a928d821b061fce3d1fc52f08071dd53c89a6102bc06efcac3b2908"
+checksum = "502da5464ccd04011667b11c435cb992822c2c0dbde1770c988480d312a0db2e"
 dependencies = [
  "libc",
  "pkg-config",
