@@ -361,27 +361,7 @@ pub mod xlib {
                 && amount > 0
                 && *strings_return != 0x0 as *mut i8
             {
-                println!("{amount}");
-                let mut nptr = *strings_return;
-                while *nptr != 0 {
-                    print!("{:x},", *nptr);
-                    nptr = nptr.add(1);
-                }
-                println!();
                 name = Some(
-                    // std::slice::from_raw_parts(strings_return, amount as usize)
-                    //     .iter()
-                    //     .map(|ptr| {
-                    //         let mut s: Vec<i8> = vec![];
-                    //         let mut nptr = *ptr;
-                    //         while *nptr != 0 {
-                    //             s.push(*nptr);
-                    //             nptr = nptr.add(1);
-                    //         }
-                    //         s.into_iter().map(|c| c as u8 as char).collect()
-                    //     })
-                    //     .collect::<Vec<String>>()
-                    //     .join(""),
                     match std::ffi::CStr::from_ptr(*strings_return).to_string_lossy() {
                         std::borrow::Cow::Borrowed(s) => s.to_string(),
                         std::borrow::Cow::Owned(s) => s,

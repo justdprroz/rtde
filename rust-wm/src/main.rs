@@ -418,6 +418,14 @@ fn update_client_name(window_system: &mut WindowSystemContainer, win: u64) {
     }
 }
 
+fn get_client_name(window_system: &mut WindowSystemContainer, win: u64) -> Option<String> {
+    if let Some((s, w, c)) = find_window_indexes(window_system, win) {
+        Some(window_system.screens[s].workspaces[w].clients[c].window_name.clone())
+    } else {
+        None
+    }
+}
+
 fn manage_client(window_system: &mut WindowSystemContainer, win: u64) {
     select_input(
         window_system.display,
@@ -797,7 +805,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
 
             x11::xlib::EnterNotify => {
                 let ew: u64 = ev.crossing.unwrap().window;
-                log!("|- Crossed Window {}", ew);
+                log!("|- Crossed Window `{}`", get_client_name(window_system, ew).unwrap_or("Unmanaged window".to_string()));
                 log!("   |- Setting focus to window");
                 set_input_focus(window_system.display, ew, RevertToNone, CurrentTime);
                 update_current_client(window_system, ew);
@@ -810,13 +818,13 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
 
             x11::xlib::DestroyNotify => {
                 let ew: u64 = ev.destroy_window.unwrap().window;
-                log!("|- Window {} destroyed", ew);
+                log!("|- `{}` destroyed", get_client_name(window_system, ew).unwrap_or("Unmanaged window".to_string()));
                 unmanage_window(window_system, ew);
             }
 
             x11::xlib::UnmapNotify => {
                 let ew: u64 = ev.unmap.unwrap().window;
-                log!("|- Window {} unmapped", ew);
+                log!("|- `{}` unmapped", get_client_name(window_system, ew).unwrap_or("Unmanaged window".to_string()));
                 unmanage_window(window_system, ew);
             }
             x11::xlib::MotionNotify => {
@@ -836,7 +844,7 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
             x11::xlib::PropertyNotify => {
                 let p = ev.property.unwrap();
                 if p.window != window_system.root_win {
-                    log!("|- `Property` changed");
+                    log!("|- `Property` changed for window {} `{}`", p.window, get_client_name(window_system, p.window).unwrap_or("Unmanaged window".to_string()));
                     update_client_name(window_system, p.window);
                 }
             }
@@ -848,7 +856,9 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
 fn cleanup(_app: &mut ApplicationContainer) {}
 
 fn main() {
+    // Set locale for proper work with unicde symnbols
     set_locale(LC_CTYPE, ""); 
+
     // Init `app` container
     let mut app: ApplicationContainer = setup();
 
