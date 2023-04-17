@@ -104,6 +104,7 @@ use crate::wrap::xlib::open_display;
 use crate::wrap::xlib::query_tree;
 use crate::wrap::xlib::raise_window;
 use crate::wrap::xlib::select_input;
+use crate::wrap::xlib::set_error_handler;
 use crate::wrap::xlib::set_input_focus;
 
 use crate::structs::*;
@@ -321,6 +322,8 @@ fn setup() -> ApplicationContainer {
     // TODO: Init Api
 
     // Setup WM with X server info
+
+    set_error_handler();
 
     let mut netatoms: Vec<x11::xlib::Atom> = vec![];
     for name in [

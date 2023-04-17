@@ -1,6 +1,20 @@
 pub mod xlib {
     use crate::get_default::{xevent, xwindow_attributes};
 
+    unsafe extern "C" fn handler_func(_d: *mut x11::xlib::Display,_e: *mut x11::xlib::XErrorEvent) -> i32 {
+        return 0
+    }
+
+    pub fn set_error_handler() {
+        unsafe {
+            x11::xlib::XSetErrorHandler(
+                Some(
+                    handler_func
+                )
+            );
+        }
+    }
+
     pub fn set_locale(c: i32, l: &str) {
         unsafe {
             let locale = std::ffi::CString::new(l).unwrap();
