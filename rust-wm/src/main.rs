@@ -215,7 +215,7 @@ fn setup() -> ApplicationContainer {
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_l,
+                keysym: XK_d,
                 result: ActionResult::DumpInfo(),
             },
             KeyAction {
@@ -238,6 +238,26 @@ fn setup() -> ApplicationContainer {
                 keysym: XK_period,
                 result: ActionResult::MoveToScreen(ScreenSwitching::Next),
             },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_I,
+                result: ActionResult::UpdateMasterSize(1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_D,
+                result: ActionResult::UpdateMasterSize(-1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_L,
+                result: ActionResult::UpdateMasterWidth(0.05),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_H,
+                result: ActionResult::UpdateMasterWidth(-0.05),
+            }
         ];
 
         for (index, key) in vec![XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
@@ -781,11 +801,13 @@ fn run(config: &ConfigurationContainer, window_system: &mut WindowSystemContaine
                                 window_system.screens[window_system.current_screen].workspaces
                                     [window_system.current_workspace]
                                     .master_size += *i;
+                                arrange(window_system);
                             }
                             ActionResult::UpdateMasterWidth(w) => {
                                 window_system.screens[window_system.current_screen].workspaces
                                     [window_system.current_workspace]
                                     .master_width += *w;
+                                arrange(window_system);
                             }
                             ActionResult::DumpInfo() => {
                                 log!("{:#?}", &window_system);
