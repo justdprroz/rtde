@@ -1,13 +1,20 @@
+//! Definitions of custom abstract structures for window manager
+
+/// ApplicationContainer structure used to store Api and EnvironmentContainer variables
 pub struct ApplicationContainer {
     pub environment: EnvironmentContainer,
     pub api: Api,
 }
 
+/// Stores all data needed by window manager to operate eg configuration and
+/// states
 pub struct EnvironmentContainer {
     pub config: ConfigurationContainer,
     pub window_system: WindowSystemContainer,
 }
 
+/// Contains user-definable configurations like visual preferences, shortcuts(actions), rules for
+/// layouts and finally status bar builing rules
 pub struct ConfigurationContainer {
     pub visual_preferences: Vec<VisualPreference>,
     pub key_actions: Vec<KeyAction>,
@@ -15,8 +22,11 @@ pub struct ConfigurationContainer {
     pub status_bar_builder: Vec<StatusBarBuilder>,
 }
 
+/// Stores settings used un UI
 pub struct VisualPreference {}
 
+/// Struct used for defining keboard shortcuts. Has keysym (Key Symbol), modifier (eg Ctrl, Shift
+/// etc) and result (action that will be run on successful trigger)
 pub struct KeyAction {
     pub keysym: u32,
     pub modifier: u32,
@@ -25,21 +35,34 @@ pub struct KeyAction {
 
 pub struct ButtonClickTrigger {}
 
+/// Enum that defines results of shortcuts
 #[derive(Debug)]
 pub enum ActionResult {
+    /// Kills current client
     KillClient,
+    /// Spawns specified command (String)
     Spawn(String),
+    /// Moves current client to chosen screen
     MoveToScreen(ScreenSwitching),
+    /// Focuses on chosen screen
     FocusOnScreen(ScreenSwitching),
-    UpdateMasterSize(i64),
+    /// Changes width of master client
+    UpdateMasterCapacity(i64),
+    /// Changes amount of windows in master
     UpdateMasterWidth(f64),
+    /// Moves current client to specified workspace on current screen
     MoveToWorkspace(u64),
+    /// Focuses on specified workspace on current screen
     FocusOnWorkspace(u64),
+    /// Temporaly maximazes window (NOT YET IMPLEMENTED)
     MaximazeWindow(),
+    /// Dumps all states to logs
     DumpInfo(),
+    /// Exits Wm
     Quit,
 }
 
+/// Enum for choosing screen. Currently supports Next and Previous screen
 #[derive(Debug)]
 pub enum ScreenSwitching {
     Next,
@@ -50,6 +73,7 @@ pub struct LayoutRule {}
 
 pub struct StatusBarBuilder {}
 
+/// Stores all states required by WM to operate
 pub struct WindowSystemContainer {
     pub status_bar: StatusBarContainer,
     pub screens: Vec<Screen>,
@@ -79,21 +103,27 @@ impl std::fmt::Debug for WindowSystemContainer {
 #[derive(Debug)]
 pub struct StatusBarContainer {}
 
+/// Stores info about screen
 #[derive(Debug)]
 pub struct Screen {
+    /// Index of display
     pub number: i64,
     pub x: i64,
     pub y: i64,
     pub width: i64,
     pub height: i64,
+    /// Associated workspaces
     pub workspaces: Vec<Workspace>,
+    /// Currently selected workspace
     pub current_workspace: usize,
 }
 
 #[derive(Debug)]
 pub struct Workspace {
     pub number: u64,
-    pub master_size: i64,
+    /// Amount of clients in master
+    pub master_capacity: i64,
+    /// Width of master window (0 - 0 pixels, 1 - full width of current screen)
     pub master_width: f64,
     pub clients: Vec<Client>,
     pub current_client: Option<usize>,

@@ -1,17 +1,16 @@
 pub mod xlib {
     use crate::get_default::{xevent, xwindow_attributes};
 
-    unsafe extern "C" fn handler_func(_d: *mut x11::xlib::Display,_e: *mut x11::xlib::XErrorEvent) -> i32 {
-        return 0
+    unsafe extern "C" fn handler_func(
+        _d: *mut x11::xlib::Display,
+        _e: *mut x11::xlib::XErrorEvent,
+    ) -> i32 {
+        return 0;
     }
 
     pub fn set_error_handler() {
         unsafe {
-            x11::xlib::XSetErrorHandler(
-                Some(
-                    handler_func
-                )
-            );
+            x11::xlib::XSetErrorHandler(Some(handler_func));
         }
     }
 
@@ -146,7 +145,7 @@ pub mod xlib {
         p: bool,
         event_mask: i64,
         event: &mut Event,
-    ) {
+    ) -> bool {
         unsafe {
             let mut xe = xevent();
             xe.type_ = event.type_;
@@ -180,7 +179,7 @@ pub mod xlib {
                 p as i32,
                 event_mask,
                 &mut xe as *mut x11::xlib::XEvent,
-            );
+            ) != 0
         }
     }
 
@@ -342,7 +341,12 @@ pub mod xlib {
         a: x11::xlib::Atom,
     ) -> Option<String> {
         unsafe {
-            let mut tr: x11::xlib::XTextProperty = x11::xlib::XTextProperty { value: 0x0 as *mut u8, encoding: 0, format: 0, nitems: 0 };
+            let mut tr: x11::xlib::XTextProperty = x11::xlib::XTextProperty {
+                value: 0x0 as *mut u8,
+                encoding: 0,
+                format: 0,
+                nitems: 0,
+            };
             let mut strings_return = 0 as *mut *mut i8;
             let mut amount = 0;
 
@@ -379,7 +383,7 @@ pub mod xlib {
                     match std::ffi::CStr::from_ptr(*strings_return).to_string_lossy() {
                         std::borrow::Cow::Borrowed(s) => s.to_string(),
                         std::borrow::Cow::Owned(s) => s,
-                    }
+                    },
                 );
 
                 x11::xlib::XFreeStringList(strings_return);
