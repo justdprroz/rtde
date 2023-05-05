@@ -55,9 +55,10 @@ pub enum ActionResult {
     /// Focuses on specified workspace on current screen
     FocusOnWorkspace(u64),
     /// Temporaly maximazes window (NOT YET IMPLEMENTED)
-    MaximazeWindow(),
+    MaximazeWindow,
+    ToggleFloat,
     /// Dumps all states to logs
-    DumpInfo(),
+    DumpInfo,
     /// Exits Wm
     Quit,
 }
@@ -129,7 +130,7 @@ pub struct Workspace {
     pub current_client: Option<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Client {
     pub window_id: u64,
     pub window_name: String,
@@ -138,8 +139,13 @@ pub struct Client {
     pub w: u32,
     pub h: u32,
     pub visible: bool,
-    pub px: i32,
-    pub py: i32,
+    pub floating: bool,
+    pub fullscreen: bool,
+    pub fixed: bool,
+    pub minw: i32,
+    pub minh: i32,
+    pub maxw: i32,
+    pub maxh: i32,
 }
 
 pub struct Api {}

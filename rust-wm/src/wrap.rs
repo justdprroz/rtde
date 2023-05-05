@@ -235,6 +235,28 @@ pub mod xlib {
         }
     }
 
+    pub fn get_wm_normal_hints(
+        display: &mut x11::xlib::Display,
+        w: u64,
+    ) -> Option<(x11::xlib::XSizeHints, i64)> {
+        unsafe {
+            let mut supplied_return: i64 = 0;
+            let mut hints_return: x11::xlib::XSizeHints =
+                std::mem::MaybeUninit::zeroed().assume_init();
+            if x11::xlib::XGetWMNormalHints(
+                display as *mut x11::xlib::Display,
+                w,
+                &mut hints_return as *mut x11::xlib::XSizeHints,
+                &mut supplied_return as *mut i64,
+            ) != 0
+            {
+                Some((hints_return, supplied_return))
+            } else {
+                None
+            }
+        }
+    }
+
     pub fn move_resize_window(
         display: &mut x11::xlib::Display,
         w: u64,

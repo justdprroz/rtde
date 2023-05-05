@@ -24,6 +24,7 @@ fn _argb_to_int(a: u32, r: u8, g: u8, b: u8) -> u64 {
 
 use libc::LC_CTYPE;
 use wrap::xlib::get_text_property;
+use wrap::xlib::get_wm_normal_hints;
 use wrap::xlib::get_wm_protocols;
 use wrap::xlib::intern_atom;
 use wrap::xlib::send_event;
@@ -41,6 +42,8 @@ use x11::xlib::IsViewable;
 use x11::xlib::LeaveWindowMask;
 use x11::xlib::Mod1Mask as ModKey;
 use x11::xlib::NoEventMask;
+use x11::xlib::PMaxSize;
+use x11::xlib::PMinSize;
 use x11::xlib::PointerMotionMask;
 use x11::xlib::PropertyChangeMask;
 use x11::xlib::RevertToNone;
@@ -166,18 +169,18 @@ fn setup() -> ApplicationContainer {
             },
             KeyAction {
                 modifier: ModKey | ShiftMask,
-                keysym: XK_Q,
+                keysym: XK_q,
                 result: ActionResult::Quit,
             },
             KeyAction {
                 modifier: ModKey | ShiftMask,
-                keysym: XK_C,
+                keysym: XK_c,
                 result: ActionResult::KillClient,
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_d,
-                result: ActionResult::DumpInfo(),
+                keysym: XK_w,
+                result: ActionResult::DumpInfo,
             },
             KeyAction {
                 modifier: ModKey,
@@ -201,24 +204,29 @@ fn setup() -> ApplicationContainer {
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_I,
+                keysym: XK_i,
                 result: ActionResult::UpdateMasterCapacity(1),
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_D,
+                keysym: XK_d,
                 result: ActionResult::UpdateMasterCapacity(-1),
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_L,
+                keysym: XK_l,
                 result: ActionResult::UpdateMasterWidth(0.05),
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_H,
+                keysym: XK_h,
                 result: ActionResult::UpdateMasterWidth(-0.05),
             },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_space,
+                result: ActionResult::ToggleFloat,
+            }
         ];
 
         for (index, key) in vec![XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
@@ -426,38 +434,100 @@ fn get_client_name(window_system: &mut WindowSystemContainer, win: u64) -> Optio
 /// Adds client to window_system and configures it if needed
 fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
     // Check if window can be managed
-    let attr = get_window_attributes(ws.display, win);
-    if let None = attr {
-        return;
-    }
-    if let Some(wa) = attr {
-        if wa.override_redirect != 0 {
+    let wa = match get_window_attributes(ws.display, win) {
+        Some(a) => {
+            if a.override_redirect != 0 {
+                return;
+            }
+            a
+        },
+        None => {
             return;
         }
+    };
+
+    // Create client
+    let mut c: Client = Client::default();
+    let mut trans = 0;
+
+    // Set essential client fields
+    c.window_id = win;
+    c.w = wa.width as u32;
+    c.h = wa.height as u32;
+    c.x = wa.x;
+    c.y = wa.y;
+    c.visible = true;
+
+    // Check if window is transient
+    if get_transient_for_hint(ws.display, win, &mut trans) != 1 {
+        log!("   |- Transient");
+    } else {
+        log!("   |- Not transient");
     }
+
+    // Check if dialog or fullscreen 
+
+    // Get window default size hints
+    log!("   |- Getting default sizes");
+    if let Some((sh, _)) = get_wm_normal_hints(ws.display, win) {
+        if (sh.flags & PMaxSize) != 0 {
+            c.maxw = sh.max_width;
+            c.maxh = sh.max_height;
+            log!("      |- Setting max sizes to `{}, {}` `(width, height)`", sh.max_width, sh.max_height);
+        } else {
+            c.maxw = 0;
+            c.maxh = 0;
+            log!("      |- Error getting max sizes. Falling to default `(0, 0)`");
+        }
+        if (sh.flags & PMinSize) != 0 {
+            c.minw = sh.min_width;
+            c.minh = sh.min_height;
+            log!("      |- Setting min sizes to `{}, {}` `(width, height)`", sh.min_width, sh.min_height);
+        } else {
+            c.minw = 0;
+            c.minh = 0;
+            log!("      |- Error getting min sizes. Falling to default `(0, 0)`");
+        }
+    } else {
+        log!("   |- Cant fetch normal hints, setting everything to 0");
+        c.maxw = 0;
+        c.maxh = 0;
+        c.minw = 0;
+        c.minh = 0;
+    }
+
+    // Set fixed if max = min and if not zero(no size restrictions)
+    if c.maxw != 0 && c.maxh != 0 && c.maxw == c.minw && c.maxh == c.minh {
+        c.fixed = true;
+    }
+
+    // If fixed or transient => always float;
+    if !c.floating {
+        c.floating = c.fixed || trans != 0;
+    }
+
     // Set input mask
     select_input(
         ws.display,
         win,
         EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
     );
+
+    // Push new client
+    // (Client {
+    //    window_name: "Unmanaged window".to_string(),
+    //    visible: true,
+    //    floating: trans != 0 || false,
+    //    fixed: false,
+    // });
+    // Add client to stack
     // Get current workspace
     let w = &mut ws.screens[ws.current_screen].workspaces[ws.current_workspace];
     // Update client tracker
     w.current_client = Some(w.clients.len());
     ws.current_client = w.current_client;
-    // Push new client
-    w.clients.push(Client {
-        window_id: win,
-        window_name: "Unmanaged window".to_string(),
-        x: 0,
-        y: 0,
-        w: 1920,
-        h: 1080,
-        visible: true,
-        px: 0,
-        py: 0,
-    });
+    // Push to stack
+    w.clients.push(c);
     // Fetch and set client name
     update_client_name(ws, win);
     // Raise window above other`
@@ -473,8 +543,8 @@ fn arrange(ws: &mut WindowSystemContainer) {
     log!("   |- Arranging...");
     // Go thru all screens
     for screen in &mut ws.screens {
-        // Get amount of visible clientst to arrange
-        let stack_size = screen.workspaces[screen.current_workspace].clients.len();
+        // Get amount of visible not floating clients to arrange
+        let stack_size = screen.workspaces[screen.current_workspace].clients.iter().filter(|&c| !c.floating).count();
         // Get capacity and width of master area
         let mut master_width =
             (screen.width as f64 * screen.workspaces[screen.current_workspace].master_width) as u32;
@@ -490,6 +560,7 @@ fn arrange(ws: &mut WindowSystemContainer) {
             .clients
             .iter_mut()
             .rev()
+            .filter(|c| !c.floating)
             .enumerate()
         {
             if stack_size == 1 {
@@ -710,7 +781,8 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                             "WM_DELETE_WINDOW".to_string(),
                                             false,
                                         );
-                                        send_atom(ws, id, a);
+                                        if !send_atom(ws, id, a) {
+                                        };
                                     }
                                     None => {
                                         log!("      |- No window selected");
@@ -827,7 +899,7 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                     arrange(ws);
                                 }
                             }
-                            ActionResult::MaximazeWindow() => {
+                            ActionResult::MaximazeWindow => {
                                 log!("   |- Action `MaximazeWindow` is not currently supported");
                             }
                             ActionResult::Quit => {
@@ -848,9 +920,16 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                 // Rearrange windows
                                 arrange(ws);
                             }
-                            ActionResult::DumpInfo() => {
+                            ActionResult::DumpInfo => {
                                 // Dump all info to log
                                 log!("{:#?}", &ws);
+                            }
+                            ActionResult::ToggleFloat => {
+                                if let Some(c) = ws.current_client {
+                                    let state = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[c].floating;
+                                    ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[c].floating = !state;
+                                    arrange(ws);
+                                }
                             }
                         }
                     }
