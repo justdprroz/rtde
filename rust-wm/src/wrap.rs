@@ -131,9 +131,11 @@ pub mod xlib {
         oie: bool,
     ) -> x11::xlib::Atom {
         unsafe {
+            let name_ptr = std::ffi::CString::new(atom_name.clone()).unwrap();
+            eprintln!("ATOM_NAME: {} but {}", atom_name, std::ffi::CStr::from_ptr(name_ptr.as_ptr() as *const i8).to_str().unwrap());
             x11::xlib::XInternAtom(
                 display as *mut x11::xlib::Display,
-                atom_name.as_str().as_ptr() as *const i8,
+                name_ptr.as_ptr() as *const i8,
                 oie as i32,
             )
         }

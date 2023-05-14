@@ -74,6 +74,23 @@ pub struct LayoutRule {}
 
 pub struct StatusBarBuilder {}
 
+#[derive(Debug)]
+pub struct Atoms {
+    pub wm_protocols: u64,
+    pub wm_delete: u64,
+    pub wm_state: u64,
+    pub wm_take_focus: u64,
+    pub net_active_window: u64,
+    pub net_supported: u64,
+    pub net_wm_name: u64,
+    pub net_wm_state: u64,
+    pub net_wm_check: u64,
+    pub net_wm_fullscreen: u64,
+    pub net_wm_window_type: u64,
+    pub net_wm_window_type_dialog: u64,
+    pub net_client_list: u64,
+}
+
 /// Stores all states required by WM to operate
 pub struct WindowSystemContainer {
     pub status_bar: StatusBarContainer,
@@ -84,6 +101,7 @@ pub struct WindowSystemContainer {
     pub display: &'static mut x11::xlib::Display,
     pub root_win: u64,
     pub running: bool,
+    pub atoms: Atoms,
 }
 
 impl std::fmt::Debug for WindowSystemContainer {

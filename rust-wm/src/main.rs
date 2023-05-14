@@ -8,6 +8,9 @@
 
 mod get_default;
 mod grab;
+use std::ffi::CStr;
+use std::ffi::CString;
+use std::mem::size_of;
 use std::process::Command;
 use std::ptr::null_mut;
 use std::vec;
@@ -31,6 +34,7 @@ use wrap::xlib::send_event;
 use wrap::xlib::set_locale;
 use wrap::xlib::Event;
 use x11::keysym::*;
+use x11::xlib::Atom;
 use x11::xlib::ButtonPressMask;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
@@ -52,7 +56,10 @@ use x11::xlib::ShiftMask;
 use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
+use x11::xlib::Success;
+use x11::xlib::XGetAtomName;
 use x11::xlib::XSetWindowAttributes;
+use x11::xlib::XA_ATOM;
 
 use crate::wrap::xinerama::xinerama_query_screens;
 use crate::wrap::xlib::change_property;
@@ -116,7 +123,22 @@ fn setup() -> ApplicationContainer {
                 current_screen: 0,
                 current_workspace: 0,
                 current_client: None,
-            },
+            
+            atoms: Atoms {
+                wm_protocols: 0,
+                wm_delete: 0,
+                wm_state: 0,
+                net_wm_check: 0,
+                wm_take_focus: 0,
+                net_active_window: 0,
+                net_supported: 0,
+                net_wm_name: 0,
+                net_wm_state: 0,
+                net_wm_fullscreen: 0,
+                net_wm_window_type: 0,
+                net_wm_window_type_dialog: 0,
+                net_client_list: 0
+            },},
         },
         api: Api {},
     };
@@ -226,7 +248,7 @@ fn setup() -> ApplicationContainer {
                 modifier: ModKey | ShiftMask,
                 keysym: XK_space,
                 result: ActionResult::ToggleFloat,
-            }
+            },
         ];
 
         for (index, key) in vec![XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
@@ -278,6 +300,25 @@ fn setup() -> ApplicationContainer {
     app.environment.window_system.root_win =
         default_root_window(&mut app.environment.window_system.display);
 
+    let dpy = &mut app.environment.window_system.display;
+
+    app.environment.window_system.atoms = Atoms {
+        wm_protocols: intern_atom(dpy, "WM_PROTOCOLS".to_string(), false),
+        wm_delete: intern_atom(dpy, "WM_DELETE_WINDOW".to_string(), false),
+        wm_state: intern_atom(dpy, "WM_STATE".to_string(), false),
+        wm_take_focus: intern_atom(dpy, "WM_TAKE_FOCUS".to_string(), false),
+
+        net_active_window: intern_atom(dpy, "_NET_ACTIVE_WINDOW".to_string(), false),
+        net_supported: intern_atom(dpy, "_NET_SUPPORTED".to_string(), false),
+        net_wm_name: intern_atom(dpy, "_NET_WM_NAME".to_string(), false), 
+        net_wm_state: intern_atom(dpy, "_NET_WM_STATE".to_string(), false), 
+        net_wm_check: intern_atom(dpy, "_NET_WM_SUPPORTING_WM_CHECK".to_string(), false),
+        net_wm_fullscreen: intern_atom(dpy, "_NET_WM_STATE_FULLSCREEN".to_string(), false), 
+        net_wm_window_type: intern_atom(dpy, "_NET_WM_WINDOW_TYPE".to_string(), false), 
+        net_wm_window_type_dialog: intern_atom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG".to_string(), false), 
+        net_client_list: intern_atom(dpy, "_NET_CLIENT_LIST".to_string(), false),
+    };
+
     log!("|- Initialized `Variables`");
 
     // Init screens
@@ -314,34 +355,13 @@ fn setup() -> ApplicationContainer {
 
     set_error_handler();
 
-    let mut netatoms: Vec<x11::xlib::Atom> = vec![];
-    for name in [
-        "_NET_ACTIVE_WINDOW",
-        "_NET_SUPPORTED",
-        "_NET_WM_NAME",
-        "_NET_SUPPORTING_WM_CHECK",
-        "_NET_WM_STATE_FULLSCREEN",
-        "_NET_WM_WINDOW_TYPE",
-        "_NET_WM_WINDOW_TYPE_DIALOG",
-        "_NET_CLIENT_LIST",
-        "_NET_WM_STATE",
-    ] {
-        netatoms.push(intern_atom(
-            app.environment.window_system.display,
-            name.to_string(),
-            false,
-        ));
-    }
+    let ws = &mut app.environment.window_system;
+    let mut netatoms = vec![ws.atoms.net_active_window, ws.atoms.net_supported, ws.atoms.net_wm_name, ws.atoms.net_wm_check, ws.atoms.net_wm_fullscreen, ws.atoms.net_wm_window_type, ws.atoms.net_wm_window_type_dialog, ws.atoms.net_client_list, ws.atoms.net_wm_state];
 
-    let net_supported = intern_atom(
-        app.environment.window_system.display,
-        "_NET_SUPPORTED".to_string(),
-        false,
-    );
     change_property(
         app.environment.window_system.display,
         app.environment.window_system.root_win,
-        net_supported,
+        app.environment.window_system.atoms.net_supported,
         x11::xlib::XA_ATOM,
         32,
         x11::xlib::PropModeReplace,
@@ -405,10 +425,8 @@ fn scan(_config: &ConfigurationContainer, window_system: &mut WindowSystemContai
 
 /// Gets name from x server for specified window and undates it in struct
 fn update_client_name(window_system: &mut WindowSystemContainer, win: u64) {
-    // Create atom for property request
-    let name_atom = intern_atom(window_system.display, "_NET_WM_NAME".to_string(), false);
     // Get name property and dispatch Option<>
-    let name = match get_text_property(window_system.display, win, name_atom) {
+    let name = match get_text_property(window_system.display, win, window_system.atoms.net_wm_name) {
         Some(name) => name,
         None => "WHAT THE FUCK".to_string(),
     };
@@ -440,7 +458,7 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
                 return;
             }
             a
-        },
+        }
         None => {
             return;
         }
@@ -465,7 +483,26 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
         log!("   |- Not transient");
     }
 
-    // Check if dialog or fullscreen 
+    // Check if dialog or fullscreen
+
+    unsafe {
+        eprintln!("actual atom for state: `{}`", CStr::from_ptr(XGetAtomName(ws.display, ws.atoms.net_wm_fullscreen)).to_str().unwrap().to_owned());
+    }
+
+    let state = get_atom_prop(ws, win, ws.atoms.net_wm_state);
+    let wtype = get_atom_prop(ws, win, ws.atoms.net_wm_window_type);
+
+    eprintln!("state: {}, type: {}", ws.atoms.net_wm_state, ws.atoms.net_wm_window_type);
+    eprintln!("fullscreen: {}, dialog: {}", ws.atoms.net_wm_fullscreen, ws.atoms.net_wm_window_type_dialog);
+
+    if state == ws.atoms.net_wm_fullscreen {
+        log!("   |- Window is `fullscreen`");
+        c.floating = true;
+    }
+    if wtype == ws.atoms.net_wm_window_type_dialog {
+        log!("   |- Window is `dialog`");
+        c.floating = true;
+    }
 
     // Get window default size hints
     log!("   |- Getting default sizes");
@@ -473,7 +510,11 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
         if (sh.flags & PMaxSize) != 0 {
             c.maxw = sh.max_width;
             c.maxh = sh.max_height;
-            log!("      |- Setting max sizes to `{}, {}` `(width, height)`", sh.max_width, sh.max_height);
+            log!(
+                "      |- Setting max sizes to `{}, {}` `(width, height)`",
+                sh.max_width,
+                sh.max_height
+            );
         } else {
             c.maxw = 0;
             c.maxh = 0;
@@ -482,7 +523,11 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
         if (sh.flags & PMinSize) != 0 {
             c.minw = sh.min_width;
             c.minh = sh.min_height;
-            log!("      |- Setting min sizes to `{}, {}` `(width, height)`", sh.min_width, sh.min_height);
+            log!(
+                "      |- Setting min sizes to `{}, {}` `(width, height)`",
+                sh.min_width,
+                sh.min_height
+            );
         } else {
             c.minw = 0;
             c.minh = 0;
@@ -504,6 +549,8 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
     // If fixed or transient => always float;
     if !c.floating {
         c.floating = c.fixed || trans != 0;
+    } else {
+        log!("   |- Floating");
     }
 
     // Set input mask
@@ -544,7 +591,11 @@ fn arrange(ws: &mut WindowSystemContainer) {
     // Go thru all screens
     for screen in &mut ws.screens {
         // Get amount of visible not floating clients to arrange
-        let stack_size = screen.workspaces[screen.current_workspace].clients.iter().filter(|&c| !c.floating).count();
+        let stack_size = screen.workspaces[screen.current_workspace]
+            .clients
+            .iter()
+            .filter(|&c| !c.floating)
+            .count();
         // Get capacity and width of master area
         let mut master_width =
             (screen.width as f64 * screen.workspaces[screen.current_workspace].master_width) as u32;
@@ -707,7 +758,7 @@ fn send_atom(ws: &mut WindowSystemContainer, win: u64, e: x11::xlib::Atom) -> bo
                         send_event: 0,
                         display: null_mut(),
                         window: win,
-                        message_type: intern_atom(ws.display, "WM_PROTOCOLS".to_string(), false),
+                        message_type: ws.atoms.wm_protocols,
                         format: 32,
                         data: {
                             let mut d = x11::xlib::ClientMessageData::new();
@@ -725,6 +776,38 @@ fn send_atom(ws: &mut WindowSystemContainer, win: u64, e: x11::xlib::Atom) -> bo
     } else {
         return false;
     }
+}
+
+fn get_atom_prop(ws: &mut WindowSystemContainer, win: u64, prop: Atom) -> Atom {
+    // return 0;
+    let mut dummy_atom: u64 = 0;
+    let mut dummy_int = 0;
+    let mut dummy_long: u64 = 0;
+    let mut property_return: *mut u8 = 0 as *mut u8;
+    let mut atom: u64 = 0;
+    unsafe {
+        if x11::xlib::XGetWindowProperty(
+            ws.display,
+            win,
+            prop,
+            0,
+            size_of::<Atom> as i64,
+            0,
+            XA_ATOM,
+            &mut dummy_atom as *mut u64,
+            &mut dummy_int as *mut i32,
+            &mut dummy_long as *mut u64,
+            &mut dummy_long as *mut u64,
+            &mut property_return as *mut *mut u8,
+        ) == Success as i32
+            && property_return as usize != 0
+        {
+            atom = *(property_return as *mut Atom);
+            x11::xlib::XFree(property_return as *mut libc::c_void);
+        }
+    }
+    eprintln!("ATOM IS {}", atom);
+    atom
 }
 
 /// Removes window from window_system
@@ -776,13 +859,7 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                             .window_id;
                                         log!("      |- Killing window {}", id);
                                         // Politely ask window to fuck off... I MEAN CLOSE ITSELF
-                                        let a = intern_atom(
-                                            ws.display,
-                                            "WM_DELETE_WINDOW".to_string(),
-                                            false,
-                                        );
-                                        if !send_atom(ws, id, a) {
-                                        };
+                                        if !send_atom(ws, id, ws.atoms.wm_delete) {};
                                     }
                                     None => {
                                         log!("      |- No window selected");
@@ -926,8 +1003,14 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                             }
                             ActionResult::ToggleFloat => {
                                 if let Some(c) = ws.current_client {
-                                    let state = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[c].floating;
-                                    ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[c].floating = !state;
+                                    let state = ws.screens[ws.current_screen].workspaces
+                                        [ws.current_workspace]
+                                        .clients[c]
+                                        .floating;
+                                    ws.screens[ws.current_screen].workspaces
+                                        [ws.current_workspace]
+                                        .clients[c]
+                                        .floating = !state;
                                     arrange(ws);
                                 }
                             }
