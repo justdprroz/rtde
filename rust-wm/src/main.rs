@@ -498,6 +498,7 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
     if state == ws.atoms.net_wm_fullscreen {
         log!("   |- Window is `fullscreen`");
         c.floating = true;
+        c.fullscreen = true;
     }
     if wtype == ws.atoms.net_wm_window_type_dialog {
         log!("   |- Window is `dialog`");
@@ -553,6 +554,8 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
         log!("   |- Floating");
     }
 
+    // floating windows are moved to centre of screen?
+
     // Set input mask
     select_input(
         ws.display,
@@ -606,7 +609,7 @@ fn arrange(ws: &mut WindowSystemContainer) {
             master_width = screen.width as u32;
         }
         log!("   |- Arranging {} window", stack_size);
-        // Iterate over all clients structs
+        // Iterate over all tileable clients structs
         for (index, client) in screen.workspaces[screen.current_workspace]
             .clients
             .iter_mut()
@@ -645,16 +648,22 @@ fn arrange(ws: &mut WindowSystemContainer) {
                 }
             }
         }
+
         // update corresponding windows
         for client in &screen.workspaces[screen.current_workspace].clients {
-            move_resize_window(
-                ws.display,
-                client.window_id,
-                client.x + screen.x as i32,
-                client.y + screen.y as i32,
-                client.w,
-                client.h,
-            );
+            if client.fullscreen {
+                move_resize_window(ws.display, client.window_id, screen.x as i32, screen.y as i32, screen.width as u32, screen.height as u32);
+                raise_window(ws.display, client.window_id);
+            } else {
+                move_resize_window(
+                    ws.display,
+                    client.window_id,
+                    client.x + screen.x as i32,
+                    client.y + screen.y as i32,
+                    client.w,
+                    client.h,
+                )
+            };
         }
     }
 }
