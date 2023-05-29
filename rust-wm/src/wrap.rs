@@ -1,4 +1,6 @@
 pub mod xlib {
+    use x11::xlib::DestroyAll;
+
     use crate::get_default::{xevent, xwindow_attributes};
 
     unsafe extern "C" fn handler_func(
@@ -82,6 +84,24 @@ pub mod xlib {
                     .map(|win| *win)
                     .collect(),
             )
+        }
+    }
+
+    pub fn grab_server(display: &mut x11::xlib::Display) {
+        unsafe {
+            x11::xlib::XGrabServer(display as *mut x11::xlib::Display);
+        }
+    }
+
+    pub fn ungrab_server(display: &mut x11::xlib::Display) {
+        unsafe {
+            x11::xlib::XUngrabServer(display as *mut x11::xlib::Display);
+        }
+    }
+
+    pub fn set_close_down_mode(display: &mut x11::xlib::Display, mode: i32) {
+        unsafe {
+            x11::xlib::XSetCloseDownMode(display as *mut x11::xlib::Display, mode);
         }
     }
 

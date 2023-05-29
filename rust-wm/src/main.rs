@@ -9,7 +9,6 @@
 mod get_default;
 mod grab;
 use std::ffi::CStr;
-use std::ffi::CString;
 use std::mem::size_of;
 use std::process::Command;
 use std::ptr::null_mut;
@@ -40,6 +39,7 @@ use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
 use x11::xlib::ClientMessage;
 use x11::xlib::CurrentTime;
+use x11::xlib::DestroyAll;
 use x11::xlib::EnterWindowMask;
 use x11::xlib::FocusChangeMask;
 use x11::xlib::IsViewable;
@@ -50,7 +50,6 @@ use x11::xlib::PMaxSize;
 use x11::xlib::PMinSize;
 use x11::xlib::PointerMotionMask;
 use x11::xlib::PropertyChangeMask;
-use x11::xlib::RevertToNone;
 use x11::xlib::RevertToPointerRoot;
 use x11::xlib::ShiftMask;
 use x11::xlib::StructureNotifyMask;
@@ -67,7 +66,9 @@ use crate::wrap::xlib::change_window_attributes;
 use crate::wrap::xlib::default_root_window;
 use crate::wrap::xlib::get_transient_for_hint;
 use crate::wrap::xlib::get_window_attributes;
+use crate::wrap::xlib::grab_server;
 use crate::wrap::xlib::keysym_to_keycode;
+use crate::wrap::xlib::kill_client;
 use crate::wrap::xlib::map_window;
 use crate::wrap::xlib::move_resize_window;
 use crate::wrap::xlib::next_event;
@@ -75,10 +76,12 @@ use crate::wrap::xlib::open_display;
 use crate::wrap::xlib::query_tree;
 use crate::wrap::xlib::raise_window;
 use crate::wrap::xlib::select_input;
+use crate::wrap::xlib::set_close_down_mode;
 use crate::wrap::xlib::set_error_handler;
 use crate::wrap::xlib::set_input_focus;
 
 use crate::structs::*;
+use crate::wrap::xlib::ungrab_server;
 
 /// Does println! in debug, does nothing in release
 macro_rules! log {
@@ -485,23 +488,14 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
 
     // Check if dialog or fullscreen
 
-    unsafe {
-        eprintln!("actual atom for state: `{}`", CStr::from_ptr(XGetAtomName(ws.display, ws.atoms.net_wm_fullscreen)).to_str().unwrap().to_owned());
-    }
-
     let state = get_atom_prop(ws, win, ws.atoms.net_wm_state);
     let wtype = get_atom_prop(ws, win, ws.atoms.net_wm_window_type);
 
-    eprintln!("state: {}, type: {}", ws.atoms.net_wm_state, ws.atoms.net_wm_window_type);
-    eprintln!("fullscreen: {}, dialog: {}", ws.atoms.net_wm_fullscreen, ws.atoms.net_wm_window_type_dialog);
-
     if state == ws.atoms.net_wm_fullscreen {
-        log!("   |- Window is `fullscreen`");
         c.floating = true;
         c.fullscreen = true;
     }
     if wtype == ws.atoms.net_wm_window_type_dialog {
-        log!("   |- Window is `dialog`");
         c.floating = true;
     }
 
@@ -817,7 +811,6 @@ fn get_atom_prop(ws: &mut WindowSystemContainer, win: u64, prop: Atom) -> Atom {
             x11::xlib::XFree(property_return as *mut libc::c_void);
         }
     }
-    eprintln!("ATOM IS {}", atom);
     atom
 }
 
@@ -870,7 +863,12 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                             .window_id;
                                         log!("      |- Killing window {}", id);
                                         // Politely ask window to fuck off... I MEAN CLOSE ITSELF
-                                        if !send_atom(ws, id, ws.atoms.wm_delete) {};
+                                        if !send_atom(ws, id, ws.atoms.wm_delete) {
+                                            grab_server(ws.display);
+                                            set_close_down_mode(ws.display, DestroyAll);
+                                            kill_client(ws.display, id);
+                                            ungrab_server(ws.display);
+                                        };
                                     }
                                     None => {
                                         log!("      |- No window selected");
