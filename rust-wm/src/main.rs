@@ -582,6 +582,8 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
     update_client_name(ws, win);
     // Raise window above other`
     raise_window(ws.display, win);
+    // Focus on created window
+    set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
     // Arrange current workspace
     arrange(ws);
     // Finish mapping
