@@ -55,9 +55,10 @@ pub enum ActionResult {
     /// Focuses on specified workspace on current screen
     FocusOnWorkspace(u64),
     /// Temporaly maximazes window (NOT YET IMPLEMENTED)
-    MaximazeWindow(),
+    MaximazeWindow,
+    ToggleFloat,
     /// Dumps all states to logs
-    DumpInfo(),
+    DumpInfo,
     /// Exits Wm
     Quit,
 }
@@ -73,6 +74,23 @@ pub struct LayoutRule {}
 
 pub struct StatusBarBuilder {}
 
+#[derive(Debug)]
+pub struct Atoms {
+    pub wm_protocols: u64,
+    pub wm_delete: u64,
+    pub wm_state: u64,
+    pub wm_take_focus: u64,
+    pub net_active_window: u64,
+    pub net_supported: u64,
+    pub net_wm_name: u64,
+    pub net_wm_state: u64,
+    pub net_wm_check: u64,
+    pub net_wm_fullscreen: u64,
+    pub net_wm_window_type: u64,
+    pub net_wm_window_type_dialog: u64,
+    pub net_client_list: u64,
+}
+
 /// Stores all states required by WM to operate
 pub struct WindowSystemContainer {
     pub status_bar: StatusBarContainer,
@@ -83,6 +101,7 @@ pub struct WindowSystemContainer {
     pub display: &'static mut x11::xlib::Display,
     pub root_win: u64,
     pub running: bool,
+    pub atoms: Atoms,
 }
 
 impl std::fmt::Debug for WindowSystemContainer {
@@ -129,7 +148,7 @@ pub struct Workspace {
     pub current_client: Option<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Client {
     pub window_id: u64,
     pub window_name: String,
@@ -138,8 +157,13 @@ pub struct Client {
     pub w: u32,
     pub h: u32,
     pub visible: bool,
-    pub px: i32,
-    pub py: i32,
+    pub floating: bool,
+    pub fullscreen: bool,
+    pub fixed: bool,
+    pub minw: i32,
+    pub minh: i32,
+    pub maxw: i32,
+    pub maxh: i32,
 }
 
 pub struct Api {}

@@ -8,6 +8,9 @@
 
 mod get_default;
 mod grab;
+use std::ffi::CStr;
+use std::ffi::CString;
+use std::mem::size_of;
 use std::process::Command;
 use std::ptr::null_mut;
 use std::vec;
@@ -24,12 +27,14 @@ fn _argb_to_int(a: u32, r: u8, g: u8, b: u8) -> u64 {
 
 use libc::LC_CTYPE;
 use wrap::xlib::get_text_property;
+use wrap::xlib::get_wm_normal_hints;
 use wrap::xlib::get_wm_protocols;
 use wrap::xlib::intern_atom;
 use wrap::xlib::send_event;
 use wrap::xlib::set_locale;
 use wrap::xlib::Event;
 use x11::keysym::*;
+use x11::xlib::Atom;
 use x11::xlib::ButtonPressMask;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
@@ -41,6 +46,8 @@ use x11::xlib::IsViewable;
 use x11::xlib::LeaveWindowMask;
 use x11::xlib::Mod1Mask as ModKey;
 use x11::xlib::NoEventMask;
+use x11::xlib::PMaxSize;
+use x11::xlib::PMinSize;
 use x11::xlib::PointerMotionMask;
 use x11::xlib::PropertyChangeMask;
 use x11::xlib::RevertToNone;
@@ -49,7 +56,10 @@ use x11::xlib::ShiftMask;
 use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
+use x11::xlib::Success;
+use x11::xlib::XGetAtomName;
 use x11::xlib::XSetWindowAttributes;
+use x11::xlib::XA_ATOM;
 
 use crate::wrap::xinerama::xinerama_query_screens;
 use crate::wrap::xlib::change_property;
@@ -113,7 +123,22 @@ fn setup() -> ApplicationContainer {
                 current_screen: 0,
                 current_workspace: 0,
                 current_client: None,
-            },
+            
+            atoms: Atoms {
+                wm_protocols: 0,
+                wm_delete: 0,
+                wm_state: 0,
+                net_wm_check: 0,
+                wm_take_focus: 0,
+                net_active_window: 0,
+                net_supported: 0,
+                net_wm_name: 0,
+                net_wm_state: 0,
+                net_wm_fullscreen: 0,
+                net_wm_window_type: 0,
+                net_wm_window_type_dialog: 0,
+                net_client_list: 0
+            },},
         },
         api: Api {},
     };
@@ -166,18 +191,18 @@ fn setup() -> ApplicationContainer {
             },
             KeyAction {
                 modifier: ModKey | ShiftMask,
-                keysym: XK_Q,
+                keysym: XK_q,
                 result: ActionResult::Quit,
             },
             KeyAction {
                 modifier: ModKey | ShiftMask,
-                keysym: XK_C,
+                keysym: XK_c,
                 result: ActionResult::KillClient,
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_d,
-                result: ActionResult::DumpInfo(),
+                keysym: XK_w,
+                result: ActionResult::DumpInfo,
             },
             KeyAction {
                 modifier: ModKey,
@@ -201,23 +226,28 @@ fn setup() -> ApplicationContainer {
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_I,
+                keysym: XK_i,
                 result: ActionResult::UpdateMasterCapacity(1),
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_D,
+                keysym: XK_d,
                 result: ActionResult::UpdateMasterCapacity(-1),
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_L,
+                keysym: XK_l,
                 result: ActionResult::UpdateMasterWidth(0.05),
             },
             KeyAction {
                 modifier: ModKey,
-                keysym: XK_H,
+                keysym: XK_h,
                 result: ActionResult::UpdateMasterWidth(-0.05),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_space,
+                result: ActionResult::ToggleFloat,
             },
         ];
 
@@ -270,6 +300,25 @@ fn setup() -> ApplicationContainer {
     app.environment.window_system.root_win =
         default_root_window(&mut app.environment.window_system.display);
 
+    let dpy = &mut app.environment.window_system.display;
+
+    app.environment.window_system.atoms = Atoms {
+        wm_protocols: intern_atom(dpy, "WM_PROTOCOLS".to_string(), false),
+        wm_delete: intern_atom(dpy, "WM_DELETE_WINDOW".to_string(), false),
+        wm_state: intern_atom(dpy, "WM_STATE".to_string(), false),
+        wm_take_focus: intern_atom(dpy, "WM_TAKE_FOCUS".to_string(), false),
+
+        net_active_window: intern_atom(dpy, "_NET_ACTIVE_WINDOW".to_string(), false),
+        net_supported: intern_atom(dpy, "_NET_SUPPORTED".to_string(), false),
+        net_wm_name: intern_atom(dpy, "_NET_WM_NAME".to_string(), false), 
+        net_wm_state: intern_atom(dpy, "_NET_WM_STATE".to_string(), false), 
+        net_wm_check: intern_atom(dpy, "_NET_WM_SUPPORTING_WM_CHECK".to_string(), false),
+        net_wm_fullscreen: intern_atom(dpy, "_NET_WM_STATE_FULLSCREEN".to_string(), false), 
+        net_wm_window_type: intern_atom(dpy, "_NET_WM_WINDOW_TYPE".to_string(), false), 
+        net_wm_window_type_dialog: intern_atom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG".to_string(), false), 
+        net_client_list: intern_atom(dpy, "_NET_CLIENT_LIST".to_string(), false),
+    };
+
     log!("|- Initialized `Variables`");
 
     // Init screens
@@ -306,34 +355,13 @@ fn setup() -> ApplicationContainer {
 
     set_error_handler();
 
-    let mut netatoms: Vec<x11::xlib::Atom> = vec![];
-    for name in [
-        "_NET_ACTIVE_WINDOW",
-        "_NET_SUPPORTED",
-        "_NET_WM_NAME",
-        "_NET_SUPPORTING_WM_CHECK",
-        "_NET_WM_STATE_FULLSCREEN",
-        "_NET_WM_WINDOW_TYPE",
-        "_NET_WM_WINDOW_TYPE_DIALOG",
-        "_NET_CLIENT_LIST",
-        "_NET_WM_STATE",
-    ] {
-        netatoms.push(intern_atom(
-            app.environment.window_system.display,
-            name.to_string(),
-            false,
-        ));
-    }
+    let ws = &mut app.environment.window_system;
+    let mut netatoms = vec![ws.atoms.net_active_window, ws.atoms.net_supported, ws.atoms.net_wm_name, ws.atoms.net_wm_check, ws.atoms.net_wm_fullscreen, ws.atoms.net_wm_window_type, ws.atoms.net_wm_window_type_dialog, ws.atoms.net_client_list, ws.atoms.net_wm_state];
 
-    let net_supported = intern_atom(
-        app.environment.window_system.display,
-        "_NET_SUPPORTED".to_string(),
-        false,
-    );
     change_property(
         app.environment.window_system.display,
         app.environment.window_system.root_win,
-        net_supported,
+        app.environment.window_system.atoms.net_supported,
         x11::xlib::XA_ATOM,
         32,
         x11::xlib::PropModeReplace,
@@ -397,10 +425,8 @@ fn scan(_config: &ConfigurationContainer, window_system: &mut WindowSystemContai
 
 /// Gets name from x server for specified window and undates it in struct
 fn update_client_name(window_system: &mut WindowSystemContainer, win: u64) {
-    // Create atom for property request
-    let name_atom = intern_atom(window_system.display, "_NET_WM_NAME".to_string(), false);
     // Get name property and dispatch Option<>
-    let name = match get_text_property(window_system.display, win, name_atom) {
+    let name = match get_text_property(window_system.display, win, window_system.atoms.net_wm_name) {
         Some(name) => name,
         None => "WHAT THE FUCK".to_string(),
     };
@@ -426,42 +452,138 @@ fn get_client_name(window_system: &mut WindowSystemContainer, win: u64) -> Optio
 /// Adds client to window_system and configures it if needed
 fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
     // Check if window can be managed
-    let attr = get_window_attributes(ws.display, win);
-    if let None = attr {
-        return;
-    }
-    if let Some(wa) = attr {
-        if wa.override_redirect != 0 {
+    let wa = match get_window_attributes(ws.display, win) {
+        Some(a) => {
+            if a.override_redirect != 0 {
+                return;
+            }
+            a
+        }
+        None => {
             return;
         }
+    };
+
+    // Create client
+    let mut c: Client = Client::default();
+    let mut trans = 0;
+
+    // Set essential client fields
+    c.window_id = win;
+    c.w = wa.width as u32;
+    c.h = wa.height as u32;
+    c.x = wa.x;
+    c.y = wa.y;
+    c.visible = true;
+
+    // Check if window is transient
+    if get_transient_for_hint(ws.display, win, &mut trans) != 1 {
+        log!("   |- Transient");
+    } else {
+        log!("   |- Not transient");
     }
+
+    // Check if dialog or fullscreen
+
+    unsafe {
+        eprintln!("actual atom for state: `{}`", CStr::from_ptr(XGetAtomName(ws.display, ws.atoms.net_wm_fullscreen)).to_str().unwrap().to_owned());
+    }
+
+    let state = get_atom_prop(ws, win, ws.atoms.net_wm_state);
+    let wtype = get_atom_prop(ws, win, ws.atoms.net_wm_window_type);
+
+    eprintln!("state: {}, type: {}", ws.atoms.net_wm_state, ws.atoms.net_wm_window_type);
+    eprintln!("fullscreen: {}, dialog: {}", ws.atoms.net_wm_fullscreen, ws.atoms.net_wm_window_type_dialog);
+
+    if state == ws.atoms.net_wm_fullscreen {
+        log!("   |- Window is `fullscreen`");
+        c.floating = true;
+        c.fullscreen = true;
+    }
+    if wtype == ws.atoms.net_wm_window_type_dialog {
+        log!("   |- Window is `dialog`");
+        c.floating = true;
+    }
+
+    // Get window default size hints
+    log!("   |- Getting default sizes");
+    if let Some((sh, _)) = get_wm_normal_hints(ws.display, win) {
+        if (sh.flags & PMaxSize) != 0 {
+            c.maxw = sh.max_width;
+            c.maxh = sh.max_height;
+            log!(
+                "      |- Setting max sizes to `{}, {}` `(width, height)`",
+                sh.max_width,
+                sh.max_height
+            );
+        } else {
+            c.maxw = 0;
+            c.maxh = 0;
+            log!("      |- Error getting max sizes. Falling to default `(0, 0)`");
+        }
+        if (sh.flags & PMinSize) != 0 {
+            c.minw = sh.min_width;
+            c.minh = sh.min_height;
+            log!(
+                "      |- Setting min sizes to `{}, {}` `(width, height)`",
+                sh.min_width,
+                sh.min_height
+            );
+        } else {
+            c.minw = 0;
+            c.minh = 0;
+            log!("      |- Error getting min sizes. Falling to default `(0, 0)`");
+        }
+    } else {
+        log!("   |- Cant fetch normal hints, setting everything to 0");
+        c.maxw = 0;
+        c.maxh = 0;
+        c.minw = 0;
+        c.minh = 0;
+    }
+
+    // Set fixed if max = min and if not zero(no size restrictions)
+    if c.maxw != 0 && c.maxh != 0 && c.maxw == c.minw && c.maxh == c.minh {
+        c.fixed = true;
+    }
+
+    // If fixed or transient => always float;
+    if !c.floating {
+        c.floating = c.fixed || trans != 0;
+    } else {
+        log!("   |- Floating");
+    }
+
+    // floating windows are moved to centre of screen?
+
     // Set input mask
     select_input(
         ws.display,
         win,
         EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
     );
+
+    // Push new client
+    // (Client {
+    //    window_name: "Unmanaged window".to_string(),
+    //    visible: true,
+    //    floating: trans != 0 || false,
+    //    fixed: false,
+    // });
+    // Add client to stack
     // Get current workspace
     let w = &mut ws.screens[ws.current_screen].workspaces[ws.current_workspace];
     // Update client tracker
     w.current_client = Some(w.clients.len());
     ws.current_client = w.current_client;
-    // Push new client
-    w.clients.push(Client {
-        window_id: win,
-        window_name: "Unmanaged window".to_string(),
-        x: 0,
-        y: 0,
-        w: 1920,
-        h: 1080,
-        visible: true,
-        px: 0,
-        py: 0,
-    });
+    // Push to stack
+    w.clients.push(c);
     // Fetch and set client name
     update_client_name(ws, win);
     // Raise window above other`
     raise_window(ws.display, win);
+    // Focus on created window
+    set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
     // Arrange current workspace
     arrange(ws);
     // Finish mapping
@@ -473,8 +595,12 @@ fn arrange(ws: &mut WindowSystemContainer) {
     log!("   |- Arranging...");
     // Go thru all screens
     for screen in &mut ws.screens {
-        // Get amount of visible clientst to arrange
-        let stack_size = screen.workspaces[screen.current_workspace].clients.len();
+        // Get amount of visible not floating clients to arrange
+        let stack_size = screen.workspaces[screen.current_workspace]
+            .clients
+            .iter()
+            .filter(|&c| !c.floating)
+            .count();
         // Get capacity and width of master area
         let mut master_width =
             (screen.width as f64 * screen.workspaces[screen.current_workspace].master_width) as u32;
@@ -485,11 +611,12 @@ fn arrange(ws: &mut WindowSystemContainer) {
             master_width = screen.width as u32;
         }
         log!("   |- Arranging {} window", stack_size);
-        // Iterate over all clients structs
+        // Iterate over all tileable clients structs
         for (index, client) in screen.workspaces[screen.current_workspace]
             .clients
             .iter_mut()
             .rev()
+            .filter(|c| !c.floating)
             .enumerate()
         {
             if stack_size == 1 {
@@ -523,16 +650,22 @@ fn arrange(ws: &mut WindowSystemContainer) {
                 }
             }
         }
+
         // update corresponding windows
         for client in &screen.workspaces[screen.current_workspace].clients {
-            move_resize_window(
-                ws.display,
-                client.window_id,
-                client.x + screen.x as i32,
-                client.y + screen.y as i32,
-                client.w,
-                client.h,
-            );
+            if client.fullscreen {
+                move_resize_window(ws.display, client.window_id, screen.x as i32, screen.y as i32, screen.width as u32, screen.height as u32);
+                raise_window(ws.display, client.window_id);
+            } else {
+                move_resize_window(
+                    ws.display,
+                    client.window_id,
+                    client.x + screen.x as i32,
+                    client.y + screen.y as i32,
+                    client.w,
+                    client.h,
+                )
+            };
         }
     }
 }
@@ -636,7 +769,7 @@ fn send_atom(ws: &mut WindowSystemContainer, win: u64, e: x11::xlib::Atom) -> bo
                         send_event: 0,
                         display: null_mut(),
                         window: win,
-                        message_type: intern_atom(ws.display, "WM_PROTOCOLS".to_string(), false),
+                        message_type: ws.atoms.wm_protocols,
                         format: 32,
                         data: {
                             let mut d = x11::xlib::ClientMessageData::new();
@@ -654,6 +787,38 @@ fn send_atom(ws: &mut WindowSystemContainer, win: u64, e: x11::xlib::Atom) -> bo
     } else {
         return false;
     }
+}
+
+fn get_atom_prop(ws: &mut WindowSystemContainer, win: u64, prop: Atom) -> Atom {
+    // return 0;
+    let mut dummy_atom: u64 = 0;
+    let mut dummy_int = 0;
+    let mut dummy_long: u64 = 0;
+    let mut property_return: *mut u8 = 0 as *mut u8;
+    let mut atom: u64 = 0;
+    unsafe {
+        if x11::xlib::XGetWindowProperty(
+            ws.display,
+            win,
+            prop,
+            0,
+            size_of::<Atom> as i64,
+            0,
+            XA_ATOM,
+            &mut dummy_atom as *mut u64,
+            &mut dummy_int as *mut i32,
+            &mut dummy_long as *mut u64,
+            &mut dummy_long as *mut u64,
+            &mut property_return as *mut *mut u8,
+        ) == Success as i32
+            && property_return as usize != 0
+        {
+            atom = *(property_return as *mut Atom);
+            x11::xlib::XFree(property_return as *mut libc::c_void);
+        }
+    }
+    eprintln!("ATOM IS {}", atom);
+    atom
 }
 
 /// Removes window from window_system
@@ -705,12 +870,7 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                             .window_id;
                                         log!("      |- Killing window {}", id);
                                         // Politely ask window to fuck off... I MEAN CLOSE ITSELF
-                                        let a = intern_atom(
-                                            ws.display,
-                                            "WM_DELETE_WINDOW".to_string(),
-                                            false,
-                                        );
-                                        send_atom(ws, id, a);
+                                        if !send_atom(ws, id, ws.atoms.wm_delete) {};
                                     }
                                     None => {
                                         log!("      |- No window selected");
@@ -827,7 +987,7 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                     arrange(ws);
                                 }
                             }
-                            ActionResult::MaximazeWindow() => {
+                            ActionResult::MaximazeWindow => {
                                 log!("   |- Action `MaximazeWindow` is not currently supported");
                             }
                             ActionResult::Quit => {
@@ -848,9 +1008,22 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                 // Rearrange windows
                                 arrange(ws);
                             }
-                            ActionResult::DumpInfo() => {
+                            ActionResult::DumpInfo => {
                                 // Dump all info to log
                                 log!("{:#?}", &ws);
+                            }
+                            ActionResult::ToggleFloat => {
+                                if let Some(c) = ws.current_client {
+                                    let state = ws.screens[ws.current_screen].workspaces
+                                        [ws.current_workspace]
+                                        .clients[c]
+                                        .floating;
+                                    ws.screens[ws.current_screen].workspaces
+                                        [ws.current_workspace]
+                                        .clients[c]
+                                        .floating = !state;
+                                    arrange(ws);
+                                }
                             }
                         }
                     }

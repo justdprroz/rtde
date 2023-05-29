@@ -131,9 +131,11 @@ pub mod xlib {
         oie: bool,
     ) -> x11::xlib::Atom {
         unsafe {
+            let name_ptr = std::ffi::CString::new(atom_name.clone()).unwrap();
+            eprintln!("ATOM_NAME: {} but {}", atom_name, std::ffi::CStr::from_ptr(name_ptr.as_ptr() as *const i8).to_str().unwrap());
             x11::xlib::XInternAtom(
                 display as *mut x11::xlib::Display,
-                atom_name.as_str().as_ptr() as *const i8,
+                name_ptr.as_ptr() as *const i8,
                 oie as i32,
             )
         }
@@ -232,6 +234,28 @@ pub mod xlib {
                 _ => {}
             };
             event
+        }
+    }
+
+    pub fn get_wm_normal_hints(
+        display: &mut x11::xlib::Display,
+        w: u64,
+    ) -> Option<(x11::xlib::XSizeHints, i64)> {
+        unsafe {
+            let mut supplied_return: i64 = 0;
+            let mut hints_return: x11::xlib::XSizeHints =
+                std::mem::MaybeUninit::zeroed().assume_init();
+            if x11::xlib::XGetWMNormalHints(
+                display as *mut x11::xlib::Display,
+                w,
+                &mut hints_return as *mut x11::xlib::XSizeHints,
+                &mut supplied_return as *mut i64,
+            ) != 0
+            {
+                Some((hints_return, supplied_return))
+            } else {
+                None
+            }
         }
     }
 
