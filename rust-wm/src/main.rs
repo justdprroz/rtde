@@ -816,6 +816,11 @@ fn shift_current_client(ws: &mut WindowSystemContainer) {
     // update secondary tracker
     ws.current_client =
         ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client;
+    if let Some(index) = ws.current_client {
+        let win = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id; 
+        set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
+    }
+    update_active_window(ws);
 }
 
 /// Safely sends atom to X server
@@ -910,12 +915,14 @@ fn unmanage_window(ws: &mut WindowSystemContainer, win: u64) {
     }
 }
 
-fn focus_window(ws: &mut WindowSystemContainer, win: u64) {
-    // Focus input on given window
-    set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
-    // Update _NET_ACTIVE_WINDOW
-    change_property(ws.display, ws.root_win, ws.atoms.net_active_window, XA_WINDOW, 32, PropModeReplace, &win as *const u64 as *mut u8, 1);
-    // if window managed get trackers
+fn update_active_window(ws: &mut WindowSystemContainer) {
+    if let Some(index) = ws.current_client {
+        let win = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id;
+        change_property(ws.display, ws.root_win, ws.atoms.net_active_window, XA_WINDOW, 32, PropModeReplace, &win as *const u64 as *mut u8, 1);
+    }
+}
+
+fn update_trackers(ws: &mut WindowSystemContainer, win: u64) {
     if let Some((s, w, c)) = find_window_indexes(ws, win) {
         ws.current_screen = s;
         ws.current_workspace = w;
@@ -1027,6 +1034,11 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                 ws.current_client = ws.screens[ws.current_screen].workspaces
                                     [ws.current_workspace]
                                     .current_client;
+                                if let Some(index) = ws.current_client {
+                                    let win = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id;
+                                    set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
+                                    update_active_window(ws);
+                                }
                             }
                             ActionResult::MoveToWorkspace(n) => {
                                 log!("   |- Got `MoveToWorkspace` Action ");
@@ -1077,6 +1089,11 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                                     show_hide_workspace(ws);
                                     // Arrange update workspace
                                     arrange(ws);
+                                    if let Some(index) = ws.current_client {
+                                        let win = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id;
+                                        set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
+                                        update_active_window(ws);
+                                    }
                                 }
                             }
                             ActionResult::MaximazeWindow => {
@@ -1138,7 +1155,9 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                 );
                 log!("   |- Setting focus to window");
                 // Focus on crossed window
-                focus_window(ws, ew);
+                update_trackers(ws, ew);
+                update_active_window(ws);
+                set_input_focus(ws.display, ew, RevertToPointerRoot, CurrentTime);
             }
 
             // Used to unmanage_window
