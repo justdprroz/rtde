@@ -1235,6 +1235,9 @@ fn main() {
     // For example: getting names of windows
     set_locale(LC_CTYPE, "");
 
+    // Run autostart
+    Command::new("/usr/bin/sh").arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh")).status().unwrap();
+
     // Init `app` container
     // App container consists of all data needed for WM to function
     let mut app: ApplicationContainer = setup();
