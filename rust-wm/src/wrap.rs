@@ -1,6 +1,4 @@
 pub mod xlib {
-    use x11::xlib::DestroyAll;
-
     use crate::get_default::{xevent, xwindow_attributes};
 
     unsafe extern "C" fn handler_func(
@@ -58,6 +56,32 @@ pub mod xlib {
 
     pub fn select_input(display: &mut x11::xlib::Display, w: u64, event_mask: i64) -> i32 {
         unsafe { x11::xlib::XSelectInput(display as *mut x11::xlib::Display, w, event_mask) }
+    }
+
+    pub fn create_simple_window(
+        display: &mut x11::xlib::Display,
+        parent: u64,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        border_width: u32,
+        border: u64,
+        background: u64,
+    ) -> u64 {
+        unsafe {
+            x11::xlib::XCreateSimpleWindow(
+                display as *mut x11::xlib::Display,
+                parent,
+                x,
+                y,
+                width,
+                height,
+                border_width,
+                border,
+                background,
+            )
+        }
     }
 
     pub fn query_tree(display: &mut x11::xlib::Display, w: u64) -> (u64, u64, Vec<u64>) {
@@ -152,7 +176,6 @@ pub mod xlib {
     ) -> x11::xlib::Atom {
         unsafe {
             let name_ptr = std::ffi::CString::new(atom_name.clone()).unwrap();
-            eprintln!("ATOM_NAME: {} but {}", atom_name, std::ffi::CStr::from_ptr(name_ptr.as_ptr() as *const i8).to_str().unwrap());
             x11::xlib::XInternAtom(
                 display as *mut x11::xlib::Display,
                 name_ptr.as_ptr() as *const i8,
@@ -356,14 +379,15 @@ pub mod xlib {
         pub property: Option<x11::xlib::XPropertyEvent>,
     }
 
-    pub fn change_property<T>(
+    pub fn change_property(
         display: &mut x11::xlib::Display,
         w: u64,
         property: x11::xlib::Atom,
         type_: x11::xlib::Atom,
         format: i32,
         mode: i32,
-        data: &mut Vec<T>,
+        data: *mut u8,
+        nelements: i32,
     ) {
         unsafe {
             x11::xlib::XChangeProperty(
@@ -373,8 +397,8 @@ pub mod xlib {
                 type_,
                 format,
                 mode,
-                data.as_mut_ptr() as *mut u8,
-                data.len() as i32,
+                data,
+                nelements as i32,
             );
         }
     }

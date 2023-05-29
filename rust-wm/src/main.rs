@@ -49,6 +49,8 @@ use x11::xlib::NoEventMask;
 use x11::xlib::PMaxSize;
 use x11::xlib::PMinSize;
 use x11::xlib::PointerMotionMask;
+use x11::xlib::PropModeAppend;
+use x11::xlib::PropModeReplace;
 use x11::xlib::PropertyChangeMask;
 use x11::xlib::RevertToPointerRoot;
 use x11::xlib::ShiftMask;
@@ -59,10 +61,12 @@ use x11::xlib::Success;
 use x11::xlib::XGetAtomName;
 use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XA_ATOM;
+use x11::xlib::XA_WINDOW;
 
 use crate::wrap::xinerama::xinerama_query_screens;
 use crate::wrap::xlib::change_property;
 use crate::wrap::xlib::change_window_attributes;
+use crate::wrap::xlib::create_simple_window;
 use crate::wrap::xlib::default_root_window;
 use crate::wrap::xlib::get_transient_for_hint;
 use crate::wrap::xlib::get_window_attributes;
@@ -121,27 +125,29 @@ fn setup() -> ApplicationContainer {
                 status_bar: StatusBarContainer {},
                 display,
                 root_win: 0,
+                wm_check_win: 0,
                 running: true,
                 screens: Vec::new(),
                 current_screen: 0,
                 current_workspace: 0,
                 current_client: None,
-            
-            atoms: Atoms {
-                wm_protocols: 0,
-                wm_delete: 0,
-                wm_state: 0,
-                net_wm_check: 0,
-                wm_take_focus: 0,
-                net_active_window: 0,
-                net_supported: 0,
-                net_wm_name: 0,
-                net_wm_state: 0,
-                net_wm_fullscreen: 0,
-                net_wm_window_type: 0,
-                net_wm_window_type_dialog: 0,
-                net_client_list: 0
-            },},
+
+                atoms: Atoms {
+                    wm_protocols: 0,
+                    wm_delete: 0,
+                    wm_state: 0,
+                    net_wm_check: 0,
+                    wm_take_focus: 0,
+                    net_active_window: 0,
+                    net_supported: 0,
+                    net_wm_name: 0,
+                    net_wm_state: 0,
+                    net_wm_fullscreen: 0,
+                    net_wm_window_type: 0,
+                    net_wm_window_type_dialog: 0,
+                    net_client_list: 0,
+                },
+            },
         },
         api: Api {},
     };
@@ -313,16 +319,68 @@ fn setup() -> ApplicationContainer {
 
         net_active_window: intern_atom(dpy, "_NET_ACTIVE_WINDOW".to_string(), false),
         net_supported: intern_atom(dpy, "_NET_SUPPORTED".to_string(), false),
-        net_wm_name: intern_atom(dpy, "_NET_WM_NAME".to_string(), false), 
-        net_wm_state: intern_atom(dpy, "_NET_WM_STATE".to_string(), false), 
-        net_wm_check: intern_atom(dpy, "_NET_WM_SUPPORTING_WM_CHECK".to_string(), false),
-        net_wm_fullscreen: intern_atom(dpy, "_NET_WM_STATE_FULLSCREEN".to_string(), false), 
-        net_wm_window_type: intern_atom(dpy, "_NET_WM_WINDOW_TYPE".to_string(), false), 
-        net_wm_window_type_dialog: intern_atom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG".to_string(), false), 
+        net_wm_name: intern_atom(dpy, "_NET_WM_NAME".to_string(), false),
+        net_wm_state: intern_atom(dpy, "_NET_WM_STATE".to_string(), false),
+        net_wm_check: intern_atom(dpy, "_NET_SUPPORTING_WM_CHECK".to_string(), false),
+        net_wm_fullscreen: intern_atom(dpy, "_NET_WM_STATE_FULLSCREEN".to_string(), false),
+        net_wm_window_type: intern_atom(dpy, "_NET_WM_WINDOW_TYPE".to_string(), false),
+        net_wm_window_type_dialog: intern_atom(
+            dpy,
+            "_NET_WM_WINDOW_TYPE_DIALOG".to_string(),
+            false,
+        ),
         net_client_list: intern_atom(dpy, "_NET_CLIENT_LIST".to_string(), false),
     };
 
     log!("|- Initialized `Variables`");
+
+    // Init supporting window
+    app.environment.window_system.wm_check_win = create_simple_window(
+        dpy,
+        app.environment.window_system.root_win,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+    );
+    let mut wmchckwin = app.environment.window_system.wm_check_win;
+
+    let utf8string = intern_atom(dpy, "UTF8_STRING".to_string(), false);  
+
+    change_property(
+        dpy,
+        wmchckwin,
+        app.environment.window_system.atoms.net_wm_check,
+        XA_WINDOW,
+        32,
+        PropModeReplace,
+        &mut wmchckwin as *mut u64 as *mut u8,
+        1,
+    );
+    let wm_name = std::ffi::CString::new("rust-wm".to_string()).unwrap();
+    change_property(
+        dpy,
+        wmchckwin,
+        app.environment.window_system.atoms.net_wm_name,
+        utf8string,
+        8,
+        PropModeReplace,
+        wm_name.as_ptr() as *mut u8,
+        7,
+    );
+    change_property(
+        dpy,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_wm_check,
+        XA_WINDOW,
+        32,
+        PropModeReplace,
+        &mut wmchckwin as *mut u64 as *mut u8,
+        1,
+    );
 
     // Init screens
     for screen in xinerama_query_screens(app.environment.window_system.display)
@@ -359,7 +417,17 @@ fn setup() -> ApplicationContainer {
     set_error_handler();
 
     let ws = &mut app.environment.window_system;
-    let mut netatoms = vec![ws.atoms.net_active_window, ws.atoms.net_supported, ws.atoms.net_wm_name, ws.atoms.net_wm_check, ws.atoms.net_wm_fullscreen, ws.atoms.net_wm_window_type, ws.atoms.net_wm_window_type_dialog, ws.atoms.net_client_list, ws.atoms.net_wm_state];
+    let mut netatoms = vec![
+        ws.atoms.net_active_window,
+        ws.atoms.net_supported,
+        ws.atoms.net_wm_name,
+        ws.atoms.net_wm_check,
+        ws.atoms.net_wm_fullscreen,
+        ws.atoms.net_wm_window_type,
+        ws.atoms.net_wm_window_type_dialog,
+        ws.atoms.net_client_list,
+        ws.atoms.net_wm_state,
+    ];
 
     change_property(
         app.environment.window_system.display,
@@ -368,7 +436,8 @@ fn setup() -> ApplicationContainer {
         x11::xlib::XA_ATOM,
         32,
         x11::xlib::PropModeReplace,
-        &mut netatoms,
+        netatoms.as_mut_ptr() as *mut u8,
+        netatoms.len() as i32,
     );
 
     let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
@@ -429,7 +498,8 @@ fn scan(_config: &ConfigurationContainer, window_system: &mut WindowSystemContai
 /// Gets name from x server for specified window and undates it in struct
 fn update_client_name(window_system: &mut WindowSystemContainer, win: u64) {
     // Get name property and dispatch Option<>
-    let name = match get_text_property(window_system.display, win, window_system.atoms.net_wm_name) {
+    let name = match get_text_property(window_system.display, win, window_system.atoms.net_wm_name)
+    {
         Some(name) => name,
         None => "WHAT THE FUCK".to_string(),
     };
@@ -572,6 +642,8 @@ fn manage_client(ws: &mut WindowSystemContainer, win: u64) {
     ws.current_client = w.current_client;
     // Push to stack
     w.clients.push(c);
+    // Add window to wm _NET_CLIENT_LIST
+    change_property(ws.display, ws.root_win, ws.atoms.net_client_list, XA_WINDOW, 32, PropModeAppend, &win as *const u64 as *mut u8, 1);
     // Fetch and set client name
     update_client_name(ws, win);
     // Raise window above other`
@@ -648,7 +720,14 @@ fn arrange(ws: &mut WindowSystemContainer) {
         // update corresponding windows
         for client in &screen.workspaces[screen.current_workspace].clients {
             if client.fullscreen {
-                move_resize_window(ws.display, client.window_id, screen.x as i32, screen.y as i32, screen.width as u32, screen.height as u32);
+                move_resize_window(
+                    ws.display,
+                    client.window_id,
+                    screen.x as i32,
+                    screen.y as i32,
+                    screen.width as u32,
+                    screen.height as u32,
+                );
                 raise_window(ws.display, client.window_id);
             } else {
                 move_resize_window(
@@ -829,6 +908,21 @@ fn unmanage_window(ws: &mut WindowSystemContainer, win: u64) {
     } else {
         log!("   |- Window is not managed");
     }
+}
+
+fn focus_window(ws: &mut WindowSystemContainer, win: u64) {
+    // Focus input on given window
+    set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
+    // Update _NET_ACTIVE_WINDOW
+    change_property(ws.display, ws.root_win, ws.atoms.net_active_window, XA_WINDOW, 32, PropModeReplace, &win as *const u64 as *mut u8, 1);
+    // if window managed get trackers
+    if let Some((s, w, c)) = find_window_indexes(ws, win) {
+        ws.current_screen = s;
+        ws.current_workspace = w;
+        ws.screens[s].current_workspace = w;
+        ws.current_client = Some(c);
+        ws.screens[s].workspaces[w].current_client = Some(c);
+    };
 }
 
 /// Starts main WM loop
@@ -1044,15 +1138,7 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                 );
                 log!("   |- Setting focus to window");
                 // Focus on crossed window
-                set_input_focus(ws.display, ew, RevertToPointerRoot, CurrentTime);
-                // if window managed get trackers
-                if let Some((s, w, c)) = find_window_indexes(ws, ew) {
-                    ws.current_screen = s;
-                    ws.current_workspace = w;
-                    ws.screens[s].current_workspace = w;
-                    ws.current_client = Some(c);
-                    ws.screens[s].workspaces[w].current_client = Some(c);
-                };
+                focus_window(ws, ew);
             }
 
             // Used to unmanage_window

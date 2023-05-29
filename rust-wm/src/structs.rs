@@ -100,6 +100,7 @@ pub struct WindowSystemContainer {
     pub current_client: Option<usize>,
     pub display: &'static mut x11::xlib::Display,
     pub root_win: u64,
+    pub wm_check_win: u64,
     pub running: bool,
     pub atoms: Atoms,
 }
