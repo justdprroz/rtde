@@ -8,7 +8,6 @@
 
 mod get_default;
 mod grab;
-use std::ffi::CStr;
 use std::mem::size_of;
 use std::process::Command;
 use std::ptr::null_mut;
@@ -58,7 +57,6 @@ use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::Success;
-use x11::xlib::XGetAtomName;
 use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_WINDOW;
@@ -360,7 +358,7 @@ fn setup() -> ApplicationContainer {
         &mut wmchckwin as *mut u64 as *mut u8,
         1,
     );
-    let wm_name = std::ffi::CString::new("rust-wm".to_string()).unwrap();
+    let wm_name = std::ffi::CString::new("rtwm".to_string()).unwrap();
     change_property(
         dpy,
         wmchckwin,

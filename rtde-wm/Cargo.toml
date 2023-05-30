@@ -1,0 +1,13 @@
+[package]
+name = "rtde-wm"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dmitri Proskuriakov <dmitri.proskuriakov@gmail.com>"]
+
+[[bin]]
+name = "rtwm"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2.133"
+x11 = "2.20.0"
