@@ -16,17 +16,23 @@ pub struct EnvironmentContainer {
 /// Contains user-definable configurations like visual preferences, shortcuts(actions), rules for
 /// layouts and finally status bar builing rules
 pub struct ConfigurationContainer {
-    pub visual_preferences: Vec<VisualPreference>,
+    pub visual_preferences: VisualPreferences,
     pub key_actions: Vec<KeyAction>,
     pub layout_rules: Vec<LayoutRule>,
     pub status_bar_builder: Vec<StatusBarBuilder>,
 }
 
 /// Stores settings used un UI
-pub struct VisualPreference {}
+pub struct VisualPreferences {
+    pub gap_width: usize,
+    pub border_size: usize,
+    pub normal_border_color: u64,
+    pub active_border_color: u64,
+}
 
 /// Struct used for defining keboard shortcuts. Has keysym (Key Symbol), modifier (eg Ctrl, Shift
 /// etc) and result (action that will be run on successful trigger)
+#[derive(Clone)]
 pub struct KeyAction {
     pub keysym: u32,
     pub modifier: u32,
@@ -36,7 +42,7 @@ pub struct KeyAction {
 pub struct ButtonClickTrigger {}
 
 /// Enum that defines results of shortcuts
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ActionResult {
     /// Kills current client
     KillClient,
@@ -64,7 +70,7 @@ pub enum ActionResult {
 }
 
 /// Enum for choosing screen. Currently supports Next and Previous screen
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ScreenSwitching {
     Next,
     Previous,
