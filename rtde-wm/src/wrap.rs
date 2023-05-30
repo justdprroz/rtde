@@ -274,6 +274,9 @@ pub mod xlib {
                 x11::xlib::PropertyNotify => {
                     event.property = Some(ev.property);
                 }
+                x11::xlib::ConfigureNotify => {
+                    event.configure = Some(ev.configure);
+                }
                 _ => {}
             };
             event
@@ -377,6 +380,7 @@ pub mod xlib {
         pub unmap: Option<x11::xlib::XUnmapEvent>,
         pub client: Option<x11::xlib::XClientMessageEvent>,
         pub property: Option<x11::xlib::XPropertyEvent>,
+        pub configure: Option<x11::xlib::XConfigureEvent>
     }
 
     pub fn change_property(
