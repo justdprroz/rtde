@@ -39,8 +39,6 @@ pub struct KeyAction {
     pub result: ActionResult,
 }
 
-pub struct ButtonClickTrigger {}
-
 /// Enum that defines results of shortcuts
 #[derive(Debug, Clone)]
 pub enum ActionResult {
@@ -61,7 +59,6 @@ pub enum ActionResult {
     /// Focuses on specified workspace on current screen
     FocusOnWorkspace(u64),
     /// Temporaly maximazes window (NOT YET IMPLEMENTED)
-    MaximazeWindow,
     ToggleFloat,
     /// Dumps all states to logs
     DumpInfo,

@@ -415,7 +415,7 @@ fn setup() -> ApplicationContainer {
             current_workspace: 0,
         })
     }
-    log!("{:#?}", app.environment.window_system.screens);
+    log!("{:#?}", &app.environment.window_system.screens);
     log!("|- Initialized xinerama `Screens` and nested `Workspaces`");
     // TODO: Init Api
 
@@ -1044,7 +1044,7 @@ fn run(app: &mut ApplicationContainer) {
                         && ev.state == action.modifier
                     {
                         // Log action type
-                        log!("   |- Got {:?} action", action.result);
+                        log!("   |- Got {:?} action", &action.result);
                         // Match action result and run related function
                         match &action.result {
                             ActionResult::KillClient => {
@@ -1080,7 +1080,7 @@ fn run(app: &mut ApplicationContainer) {
                                 };
                             }
                             ActionResult::Spawn(cmd) => {
-                                println!("   |- Got `Spawn` Action");
+                                log!("   |- Got `Spawn` Action");
                                 // Run sh with specified command
                                 let mut handle = Command::new("/usr/bin/sh")
                                     .arg("-c")
@@ -1262,9 +1262,6 @@ fn run(app: &mut ApplicationContainer) {
                                         update_active_window(app);
                                     }
                                 }
-                            }
-                            ActionResult::MaximazeWindow => {
-                                log!("   |- Action `MaximazeWindow` is not currently supported");
                             }
                             ActionResult::Quit => {
                                 log!("   |- Got `Quit` Action. `Quiting`");

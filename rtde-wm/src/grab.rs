@@ -14,7 +14,7 @@ pub fn grab_key(dpy: *mut Display, keysym: u32, mask: u32) {
     }
 }
 
-pub fn grab_button(dpy: *mut Display, button: u32, mask: u32) {
+pub fn _grab_button(dpy: *mut Display, button: u32, mask: u32) {
     unsafe {
         XGrabButton(
             dpy,

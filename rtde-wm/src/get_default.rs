@@ -29,7 +29,7 @@ pub fn xwindow_attributes() -> XWindowAttributes {
     }
 }
 
-pub fn xbutton_event() -> XButtonEvent {
+pub fn _xbutton_event() -> XButtonEvent {
     XButtonEvent {
         type_: 0,
         serial: 0,
