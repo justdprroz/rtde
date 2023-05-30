@@ -38,6 +38,12 @@ pub mod xlib {
         unsafe { x11::xlib::XDefaultRootWindow(display as *mut x11::xlib::Display) }
     }
 
+    pub fn set_window_border(display: &mut x11::xlib::Display, w: u64, border_pixel: u64) {
+        unsafe {
+            x11::xlib::XSetWindowBorder(display as *mut x11::xlib::Display, w, border_pixel);
+        }
+    }
+
     pub fn change_window_attributes(
         display: &mut x11::xlib::Display,
         w: u64,
@@ -56,6 +62,17 @@ pub mod xlib {
 
     pub fn select_input(display: &mut x11::xlib::Display, w: u64, event_mask: i64) -> i32 {
         unsafe { x11::xlib::XSelectInput(display as *mut x11::xlib::Display, w, event_mask) }
+    }
+
+    pub fn configure_window(display: &mut x11::xlib::Display, w: u64, valuemask: u32, values: &mut x11::xlib::XWindowChanges) {
+        unsafe {
+            x11::xlib::XConfigureWindow(
+                display as *mut x11::xlib::Display,
+                w,
+                valuemask,
+                values as *mut x11::xlib::XWindowChanges
+            );
+        }
     }
 
     pub fn create_simple_window(
@@ -380,7 +397,7 @@ pub mod xlib {
         pub unmap: Option<x11::xlib::XUnmapEvent>,
         pub client: Option<x11::xlib::XClientMessageEvent>,
         pub property: Option<x11::xlib::XPropertyEvent>,
-        pub configure: Option<x11::xlib::XConfigureEvent>
+        pub configure: Option<x11::xlib::XConfigureEvent>,
     }
 
     pub fn change_property(

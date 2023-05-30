@@ -34,6 +34,7 @@ use wrap::xlib::Event;
 use x11::keysym::*;
 use x11::xlib::Atom;
 use x11::xlib::ButtonPressMask;
+use x11::xlib::CWBorderWidth;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
 use x11::xlib::ClientMessage;
@@ -64,6 +65,7 @@ use x11::xlib::XA_WINDOW;
 use crate::wrap::xinerama::xinerama_query_screens;
 use crate::wrap::xlib::change_property;
 use crate::wrap::xlib::change_window_attributes;
+use crate::wrap::xlib::configure_window;
 use crate::wrap::xlib::create_simple_window;
 use crate::wrap::xlib::default_root_window;
 use crate::wrap::xlib::get_transient_for_hint;
@@ -83,6 +85,8 @@ use crate::wrap::xlib::set_error_handler;
 use crate::wrap::xlib::set_input_focus;
 
 use crate::structs::*;
+use crate::wrap::xlib::set_window_border;
+use crate::wrap::xlib::set_window_border_width;
 use crate::wrap::xlib::ungrab_server;
 
 /// Does println! in debug, does nothing in release
@@ -115,7 +119,7 @@ fn setup() -> ApplicationContainer {
         environment: EnvironmentContainer {
             config: ConfigurationContainer {
                 visual_preferences: VisualPreferences {
-                    gap_width: 5,
+                    gap_width: 4,
                     border_size: 2,
                     normal_border_color: argb_to_int(255, 64, 64, 64),
                     active_border_color: argb_to_int(255, 64, 192, 64),
@@ -351,7 +355,7 @@ fn setup() -> ApplicationContainer {
     );
     let mut wmchckwin = app.environment.window_system.wm_check_win;
 
-    let utf8string = intern_atom(dpy, "UTF8_STRING".to_string(), false);  
+    let utf8string = intern_atom(dpy, "UTF8_STRING".to_string(), false);
 
     change_property(
         dpy,
@@ -475,7 +479,10 @@ fn setup() -> ApplicationContainer {
 fn scan(app: &mut ApplicationContainer) {
     // let window_system = &mut app.environment.window_system;
     log!("|===== scan =====");
-    let (mut rw, _, wins) = query_tree(app.environment.window_system.display, app.environment.window_system.root_win);
+    let (mut rw, _, wins) = query_tree(
+        app.environment.window_system.display,
+        app.environment.window_system.root_win,
+    );
 
     log!("|- Found {} window(s) that are already present", wins.len());
 
@@ -502,8 +509,11 @@ fn scan(app: &mut ApplicationContainer) {
 /// Gets name from x server for specified window and undates it in struct
 fn update_client_name(app: &mut ApplicationContainer, win: u64) {
     // Get name property and dispatch Option<>
-    let name = match get_text_property(app.environment.window_system.display, win, app.environment.window_system.atoms.net_wm_name)
-    {
+    let name = match get_text_property(
+        app.environment.window_system.display,
+        win,
+        app.environment.window_system.atoms.net_wm_name,
+    ) {
         Some(name) => name,
         None => "WHAT THE FUCK".to_string(),
     };
@@ -563,13 +573,23 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     // Check if dialog or fullscreen
 
     let state = get_atom_prop(app, win, app.environment.window_system.atoms.net_wm_state);
-    let wtype = get_atom_prop(app, win, app.environment.window_system.atoms.net_wm_window_type);
+    let wtype = get_atom_prop(
+        app,
+        win,
+        app.environment.window_system.atoms.net_wm_window_type,
+    );
 
     if state == app.environment.window_system.atoms.net_wm_fullscreen {
         c.floating = true;
         c.fullscreen = true;
     }
-    if wtype == app.environment.window_system.atoms.net_wm_window_type_dialog {
+    if wtype
+        == app
+            .environment
+            .window_system
+            .atoms
+            .net_wm_window_type_dialog
+    {
         c.floating = true;
     }
 
@@ -630,30 +650,53 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         win,
         EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
     );
-
-    // Push new client
-    // (Client {
-    //    window_name: "Unmanaged window".to_string(),
-    //    visible: true,
-    //    floating: trans != 0 || false,
-    //    fixed: false,
-    // });
-    // Add client to stack
+    // Set previous client border to normal
+    if let Some(cw) = get_current_client_id(app) {
+        set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.normal_border_color);
+    }
     // Get current workspace
-    let w = &mut app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces[app.environment.window_system.current_workspace];
+    let w = &mut app.environment.window_system.screens
+        [app.environment.window_system.current_screen]
+        .workspaces[app.environment.window_system.current_workspace];
     // Update client tracker
     w.current_client = Some(w.clients.len());
     app.environment.window_system.current_client = w.current_client;
     // Push to stack
     w.clients.push(c);
     // Add window to wm _NET_CLIENT_LIST
-    change_property(app.environment.window_system.display, app.environment.window_system.root_win, app.environment.window_system.atoms.net_client_list, XA_WINDOW, 32, PropModeAppend, &win as *const u64 as *mut u8, 1);
+    change_property(
+        app.environment.window_system.display,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_client_list,
+        XA_WINDOW,
+        32,
+        PropModeAppend,
+        &win as *const u64 as *mut u8,
+        1,
+    );
+    // set border size
+    let mut wc = x11::xlib::XWindowChanges {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        border_width: app.environment.config.visual_preferences.border_size as i32,
+        sibling: 0,
+        stack_mode: 0 
+    };
+    configure_window(app.environment.window_system.display, win, CWBorderWidth as u32, &mut wc);
+    set_window_border(app.environment.window_system.display, win, app.environment.config.visual_preferences.active_border_color);
     // Fetch and set client name
     update_client_name(app, win);
     // Raise window above other`
     raise_window(app.environment.window_system.display, win);
     // Focus on created window
-    set_input_focus(app.environment.window_system.display, win, RevertToPointerRoot, CurrentTime);
+    set_input_focus(
+        app.environment.window_system.display,
+        win,
+        RevertToPointerRoot,
+        CurrentTime,
+    );
     // Arrange current workspace
     arrange(app);
     // Finish mapping
@@ -666,20 +709,25 @@ fn arrange(app: &mut ApplicationContainer) {
     let ws = &mut app.environment.window_system;
     // Go thru all screens
     for screen in &mut ws.screens {
+        // Gap width
+        let gw = app.environment.config.visual_preferences.gap_width as i32;
+        let bs = app.environment.config.visual_preferences.border_size as u32;
         // Get amount of visible not floating clients to arrange
         let stack_size = screen.workspaces[screen.current_workspace]
             .clients
             .iter()
             .filter(|&c| !c.floating)
             .count();
-        // Get capacity and width of master area
-        let mut master_width =
-            (screen.width as f64 * screen.workspaces[screen.current_workspace].master_width) as u32;
+        // Get widths of master and stack areas
+        let mut master_width = ((screen.width as i32 - gw * 3) as f64
+            * screen.workspaces[screen.current_workspace].master_width)
+            as u32;
+        let stack_width = (screen.width as i32 - gw * 3) - master_width as i32;
         let mut master_capacity = screen.workspaces[screen.current_workspace].master_capacity;
         // if master_capacity out of stack_size bounds use whole screen for one column
         if master_capacity <= 0 || master_capacity >= stack_size as i64 {
             master_capacity = stack_size as i64;
-            master_width = screen.width as u32;
+            master_width = screen.width as u32 - gw as u32 * 2;
         }
         log!("   |- Arranging {} window", stack_size);
         // Iterate over all tileable clients structs
@@ -697,28 +745,28 @@ fn arrange(app: &mut ApplicationContainer) {
                 client.w = screen.width as u32;
                 client.h = screen.height as u32;
             } else {
-                let gw = app.environment.config.visual_preferences.gap_width as i32;
                 if (index as i64) < master_capacity {
                     // if master_capacity is not full put it here
                     log!("      |- Goes to master");
                     // some math...
+                    let win_height =
+                        (screen.height - gw as i64 - master_capacity * gw as i64) / master_capacity;
+                    // Add gap offset to the left
                     client.x = 0 + gw;
-                    client.y =
-                        ((index as f64) * (screen.height as f64) / (master_capacity as f64)) as i32 + gw;
-                    client.w = master_width - 2 * gw as u32;
-                    client.h = ((screen.height as f64) / (master_capacity as f64)) as u32 - 2 * gw as u32;
+                    // Top gap + clients with their gaps offset
+                    client.y = gw + (win_height as i32 + gw) * index as i32;
+                    client.w = master_width - 2 * bs;
+                    client.h = win_height as u32 - 2 * bs
                 } else {
                     // otherwise put it in secondary stack
                     log!("      |- Goes to stack");
                     // a bit more of math...
-                    client.x = master_width as i32 + gw;
-                    client.y = ((index as i64 - master_capacity) as f64 * (screen.height as f64)
-                        / (stack_size as i64 - master_capacity) as f64)
-                        as i32 + gw;
-                    client.w = screen.width as u32 - master_width - 2 * gw as u32;
-                    client.h = ((screen.height as f64)
-                        / (stack_size as i64 - master_capacity) as f64)
-                        as u32 - 2 * gw as u32;
+                    let win_height =
+                        (screen.height - gw as i64 - (stack_size as i64 - master_capacity) * gw as i64) / (stack_size as i64 - master_capacity);
+                    client.x = master_width as i32 + (gw * 2) as i32;
+                    client.y = gw + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
+                    client.w = stack_width as u32 - 2 * bs;
+                    client.h = win_height as u32 - 2 * bs;
                 }
             }
         }
@@ -734,8 +782,18 @@ fn arrange(app: &mut ApplicationContainer) {
                     screen.width as u32,
                     screen.height as u32,
                 );
+                set_window_border_width(ws.display, client.window_id, 0);
                 raise_window(ws.display, client.window_id);
             } else {
+                set_window_border_width(
+                    ws.display,
+                    client.window_id,
+                    if stack_size > 1 {
+                        app.environment.config.visual_preferences.border_size as u32
+                    } else {
+                        0
+                    }
+                );
                 move_resize_window(
                     ws.display,
                     client.window_id,
@@ -743,17 +801,14 @@ fn arrange(app: &mut ApplicationContainer) {
                     client.y + screen.y as i32,
                     client.w,
                     client.h,
-                )
+                );
             };
         }
     }
 }
 
 /// Returns window, workspace and client indexies for client with specified id
-fn find_window_indexes(
-    app: &mut ApplicationContainer,
-    win: u64,
-) -> Option<(usize, usize, usize)> {
+fn find_window_indexes(app: &mut ApplicationContainer, win: u64) -> Option<(usize, usize, usize)> {
     let ws = &mut app.environment.window_system;
     for s in 0..ws.screens.len() {
         for w in 0..ws.screens[s].workspaces.len() {
@@ -826,7 +881,8 @@ fn shift_current_client(app: &mut ApplicationContainer) {
     ws.current_client =
         ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client;
     if let Some(index) = ws.current_client {
-        let win = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id; 
+        let win =
+            ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id;
         set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
     }
     update_active_window(app);
@@ -868,7 +924,13 @@ fn send_atom(app: &mut ApplicationContainer, win: u64, e: x11::xlib::Atom) -> bo
                     }),
                 };
                 // send it to requested window
-                return send_event(app.environment.window_system.display, win, false, NoEventMask, &mut ev);
+                return send_event(
+                    app.environment.window_system.display,
+                    win,
+                    false,
+                    NoEventMask,
+                    &mut ev,
+                );
             }
         }
         return false;
@@ -928,8 +990,27 @@ fn unmanage_window(app: &mut ApplicationContainer, win: u64) {
 fn update_active_window(app: &mut ApplicationContainer) {
     let ws = &mut app.environment.window_system;
     if let Some(index) = ws.current_client {
-        let win = ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id;
-        change_property(ws.display, ws.root_win, ws.atoms.net_active_window, XA_WINDOW, 32, PropModeReplace, &win as *const u64 as *mut u8, 1);
+        let win =
+            ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id;
+        change_property(
+            ws.display,
+            ws.root_win,
+            ws.atoms.net_active_window,
+            XA_WINDOW,
+            32,
+            PropModeReplace,
+            &win as *const u64 as *mut u8,
+            1,
+        );
+    }
+}
+
+fn get_current_client_id(app: &mut ApplicationContainer) -> Option<u64> {
+    let ws = &app.environment.window_system;
+    if let Some(index) = ws.current_client {
+        Some(ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id)
+    } else {
+        None
     }
 }
 
@@ -958,7 +1039,8 @@ fn run(app: &mut ApplicationContainer) {
                 let ev = ev.key.unwrap();
                 // Iterate over key actions matching current key input
                 for action in app.environment.config.key_actions.clone() {
-                    if ev.keycode == keysym_to_keycode(app.environment.window_system.display, action.keysym)
+                    if ev.keycode
+                        == keysym_to_keycode(app.environment.window_system.display, action.keysym)
                         && ev.state == action.modifier
                     {
                         // Log action type
@@ -970,15 +1052,24 @@ fn run(app: &mut ApplicationContainer) {
                                 // Check if there any windows selected
                                 match app.environment.window_system.current_client {
                                     Some(index) => {
-                                        let id = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces
+                                        let id = app.environment.window_system.screens
+                                            [app.environment.window_system.current_screen]
+                                            .workspaces
                                             [app.environment.window_system.current_workspace]
                                             .clients[index]
                                             .window_id;
                                         log!("      |- Killing window {}", id);
                                         // Politely ask window to fuck off... I MEAN CLOSE ITSELF
-                                        if !send_atom(app, id, app.environment.window_system.atoms.wm_delete) {
+                                        if !send_atom(
+                                            app,
+                                            id,
+                                            app.environment.window_system.atoms.wm_delete,
+                                        ) {
                                             grab_server(app.environment.window_system.display);
-                                            set_close_down_mode(app.environment.window_system.display, DestroyAll);
+                                            set_close_down_mode(
+                                                app.environment.window_system.display,
+                                                DestroyAll,
+                                            );
                                             kill_client(app.environment.window_system.display, id);
                                             ungrab_server(app.environment.window_system.display);
                                         };
@@ -1009,22 +1100,31 @@ fn run(app: &mut ApplicationContainer) {
                                     let mut cs = app.environment.window_system.current_screen;
                                     // Update index depending on supplied direction
                                     cs = match d {
-                                        ScreenSwitching::Next => (cs + 1) % app.environment.window_system.screens.len(),
+                                        ScreenSwitching::Next => {
+                                            (cs + 1) % app.environment.window_system.screens.len()
+                                        }
                                         ScreenSwitching::Previous => {
-                                            (cs + app.environment.window_system.screens.len() - 1) % app.environment.window_system.screens.len()
+                                            (cs + app.environment.window_system.screens.len() - 1)
+                                                % app.environment.window_system.screens.len()
                                         }
                                     };
                                     // Pop client
-                                    let cc = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces
+                                    let cc = app.environment.window_system.screens
+                                        [app.environment.window_system.current_screen]
+                                        .workspaces
                                         [app.environment.window_system.current_workspace]
                                         .clients
                                         .remove(index);
+                                    set_window_border(app.environment.window_system.display, cc.window_id, app.environment.config.visual_preferences.normal_border_color);
                                     // Update client tracker on current screen
                                     shift_current_client(app);
                                     // Get workspace tracker(borrow checker is really mad at me)
-                                    let nw = app.environment.window_system.screens[cs].current_workspace;
+                                    let nw =
+                                        app.environment.window_system.screens[cs].current_workspace;
                                     // Add window to stack of another display
-                                    app.environment.window_system.screens[cs].workspaces[nw].clients.push(cc);
+                                    app.environment.window_system.screens[cs].workspaces[nw]
+                                        .clients
+                                        .push(cc);
                                     // Arrange all monitors
                                     arrange(app);
                                 }
@@ -1034,22 +1134,46 @@ fn run(app: &mut ApplicationContainer) {
                                 let mut cs = app.environment.window_system.current_screen;
                                 // Update it
                                 cs = match d {
-                                    ScreenSwitching::Next => (cs + 1) % app.environment.window_system.screens.len(),
+                                    ScreenSwitching::Next => {
+                                        (cs + 1) % app.environment.window_system.screens.len()
+                                    }
                                     ScreenSwitching::Previous => {
-                                        (cs + app.environment.window_system.screens.len() - 1) % app.environment.window_system.screens.len()
+                                        (cs + app.environment.window_system.screens.len() - 1)
+                                            % app.environment.window_system.screens.len()
                                     }
                                 };
+                                if let Some(cw) = get_current_client_id(app) {
+                                    set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.normal_border_color);
+                                }
                                 // Change trackers
                                 app.environment.window_system.current_screen = cs;
                                 app.environment.window_system.current_workspace =
-                                    app.environment.window_system.screens[app.environment.window_system.current_screen].current_workspace;
-                                app.environment.window_system.current_client = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces
-                                    [app.environment.window_system.current_workspace]
+                                    app.environment.window_system.screens
+                                        [app.environment.window_system.current_screen]
+                                        .current_workspace;
+                                app.environment.window_system.current_client = app
+                                    .environment
+                                    .window_system
+                                    .screens[app.environment.window_system.current_screen]
+                                    .workspaces[app.environment.window_system.current_workspace]
                                     .current_client;
                                 if let Some(index) = app.environment.window_system.current_client {
-                                    let win = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces[app.environment.window_system.current_workspace].clients[index].window_id;
-                                    set_input_focus(app.environment.window_system.display, win, RevertToPointerRoot, CurrentTime);
+                                    let win = app.environment.window_system.screens
+                                        [app.environment.window_system.current_screen]
+                                        .workspaces
+                                        [app.environment.window_system.current_workspace]
+                                        .clients[index]
+                                        .window_id;
+                                    set_input_focus(
+                                        app.environment.window_system.display,
+                                        win,
+                                        RevertToPointerRoot,
+                                        CurrentTime,
+                                    );
                                     update_active_window(app);
+                                }
+                                if let Some(cw) = get_current_client_id(app) {
+                                    set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.active_border_color);
                                 }
                             }
                             ActionResult::MoveToWorkspace(n) => {
@@ -1057,12 +1181,17 @@ fn run(app: &mut ApplicationContainer) {
                                 // Check if moving to another workspace
                                 if *n as usize != app.environment.window_system.current_workspace {
                                     // Check if any client is selected
-                                    if let Some(index) = app.environment.window_system.current_client {
+                                    if let Some(index) =
+                                        app.environment.window_system.current_client
+                                    {
                                         // Pop current client
-                                        let mut cc = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces
+                                        let mut cc = app.environment.window_system.screens
+                                            [app.environment.window_system.current_screen]
+                                            .workspaces
                                             [app.environment.window_system.current_workspace]
                                             .clients
                                             .remove(index);
+                                        set_window_border(app.environment.window_system.display, cc.window_id, app.environment.config.visual_preferences.normal_border_color);
                                         // Update current workspace layout
                                         arrange(app);
                                         // Move window out of view
@@ -1078,7 +1207,9 @@ fn run(app: &mut ApplicationContainer) {
                                         // Update tracker
                                         shift_current_client(app);
                                         // Add client to choosen workspace (will be arranged later)
-                                        app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces[*n as usize]
+                                        app.environment.window_system.screens
+                                            [app.environment.window_system.current_screen]
+                                            .workspaces[*n as usize]
                                             .clients
                                             .push(cc);
                                     }
@@ -1090,20 +1221,44 @@ fn run(app: &mut ApplicationContainer) {
                                 if *n as usize != app.environment.window_system.current_workspace {
                                     // Hide current workspace
                                     show_hide_workspace(app);
+                                    // unfocus current win
+                                    if let Some(cw) = get_current_client_id(app) {
+                                        set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.normal_border_color);
+                                    }
                                     // Update workspace index
                                     app.environment.window_system.current_workspace = *n as usize;
-                                    app.environment.window_system.screens[app.environment.window_system.current_screen].current_workspace = *n as usize;
+                                    app.environment.window_system.screens
+                                        [app.environment.window_system.current_screen]
+                                        .current_workspace = *n as usize;
                                     // Update current client
-                                    app.environment.window_system.current_client = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces
-                                        [app.environment.window_system.current_workspace]
-                                        .current_client;
+                                    app.environment.window_system.current_client =
+                                        app.environment.window_system.screens
+                                            [app.environment.window_system.current_screen]
+                                            .workspaces
+                                            [app.environment.window_system.current_workspace]
+                                            .current_client;
+                                    if let Some(cw) = get_current_client_id(app) {
+                                        set_window_border(app.environment.window_system.display, cw, app.environment.config.visual_preferences.active_border_color);
+                                    }
                                     // Show current client
                                     show_hide_workspace(app);
                                     // Arrange update workspace
                                     arrange(app);
-                                    if let Some(index) = app.environment.window_system.current_client {
-                                        let win = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces[app.environment.window_system.current_workspace].clients[index].window_id;
-                                        set_input_focus(app.environment.window_system.display, win, RevertToPointerRoot, CurrentTime);
+                                    if let Some(index) =
+                                        app.environment.window_system.current_client
+                                    {
+                                        let win = app.environment.window_system.screens
+                                            [app.environment.window_system.current_screen]
+                                            .workspaces
+                                            [app.environment.window_system.current_workspace]
+                                            .clients[index]
+                                            .window_id;
+                                        set_input_focus(
+                                            app.environment.window_system.display,
+                                            win,
+                                            RevertToPointerRoot,
+                                            CurrentTime,
+                                        );
                                         update_active_window(app);
                                     }
                                 }
@@ -1117,14 +1272,18 @@ fn run(app: &mut ApplicationContainer) {
                             }
                             ActionResult::UpdateMasterCapacity(i) => {
                                 // Change master size
-                                app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces[app.environment.window_system.current_workspace]
+                                app.environment.window_system.screens
+                                    [app.environment.window_system.current_screen]
+                                    .workspaces[app.environment.window_system.current_workspace]
                                     .master_capacity += *i;
                                 // Rearrange windows
                                 arrange(app);
                             }
                             ActionResult::UpdateMasterWidth(w) => {
                                 // Update master width
-                                app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces[app.environment.window_system.current_workspace]
+                                app.environment.window_system.screens
+                                    [app.environment.window_system.current_screen]
+                                    .workspaces[app.environment.window_system.current_workspace]
                                     .master_width += *w;
                                 // Rearrange windows
                                 arrange(app);
@@ -1135,11 +1294,15 @@ fn run(app: &mut ApplicationContainer) {
                             }
                             ActionResult::ToggleFloat => {
                                 if let Some(c) = app.environment.window_system.current_client {
-                                    let state = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces
+                                    let state = app.environment.window_system.screens
+                                        [app.environment.window_system.current_screen]
+                                        .workspaces
                                         [app.environment.window_system.current_workspace]
                                         .clients[c]
                                         .floating;
-                                    app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces
+                                    app.environment.window_system.screens
+                                        [app.environment.window_system.current_screen]
+                                        .workspaces
                                         [app.environment.window_system.current_workspace]
                                         .clients[c]
                                         .floating = !state;
@@ -1167,9 +1330,18 @@ fn run(app: &mut ApplicationContainer) {
                 );
                 log!("   |- Setting focus to window");
                 // Focus on crossed window
+                if let Some(cw) = get_current_client_id(app) {
+                    set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.normal_border_color);
+                }
+                set_window_border(app.environment.window_system.display, ew, app.environment.config.visual_preferences.active_border_color);
                 update_trackers(app, ew);
                 update_active_window(app);
-                set_input_focus(app.environment.window_system.display, ew, RevertToPointerRoot, CurrentTime);
+                set_input_focus(
+                    app.environment.window_system.display,
+                    ew,
+                    RevertToPointerRoot,
+                    CurrentTime,
+                );
             }
 
             // Used to unmanage_window
@@ -1210,10 +1382,15 @@ fn run(app: &mut ApplicationContainer) {
                     {
                         // Update trackers
                         app.environment.window_system.current_screen = screen.number as usize;
-                        app.environment.window_system.current_workspace = app.environment.window_system.screens[app.environment.window_system.current_screen].current_workspace;
-                        app.environment.window_system.current_client = app.environment.window_system.screens[app.environment.window_system.current_screen].workspaces
-                            [app.environment.window_system.current_workspace]
-                            .current_client;
+                        app.environment.window_system.current_workspace =
+                            app.environment.window_system.screens
+                                [app.environment.window_system.current_screen]
+                                .current_workspace;
+                        app.environment.window_system.current_client =
+                            app.environment.window_system.screens
+                                [app.environment.window_system.current_screen]
+                                .workspaces[app.environment.window_system.current_workspace]
+                                .current_client;
                     }
                 }
             }
@@ -1238,44 +1415,52 @@ fn run(app: &mut ApplicationContainer) {
 
                 if c.window == app.environment.window_system.root_win {
                     let n = app.environment.window_system.screens.len();
-                    let screens = xinerama_query_screens(app.environment.window_system.display).expect("Running without xinerama is not supported");
+                    let screens = xinerama_query_screens(app.environment.window_system.display)
+                        .expect("Running without xinerama is not supported");
                     let screens_amount = screens.len();
                     for _ in n..screens_amount {
-                        app.environment.window_system.screens.push(
-                            Screen {
-                                number: 0,
-                                x: 0,
-                                y: 0,
-                                width: 0,
-                                height: 0,
-                                workspaces: {
-                                    let mut wv = Vec::new();
-                                    for i in 0..10 {
-                                        wv.push(Workspace {
-                                            number: i,
-                                            clients: Vec::new(),
-                                            current_client: None,
-                                            master_capacity: 1,
-                                            master_width: 0.5,
-                                        })
-                                    }
-                                    wv
-                                },
-                                current_workspace: 0 
-                            }
-                        )
+                        app.environment.window_system.screens.push(Screen {
+                            number: 0,
+                            x: 0,
+                            y: 0,
+                            width: 0,
+                            height: 0,
+                            workspaces: {
+                                let mut wv = Vec::new();
+                                for i in 0..10 {
+                                    wv.push(Workspace {
+                                        number: i,
+                                        clients: Vec::new(),
+                                        current_client: None,
+                                        master_capacity: 1,
+                                        master_width: 0.5,
+                                    })
+                                }
+                                wv
+                            },
+                            current_workspace: 0,
+                        })
                     }
                     for (index, screen) in screens.iter().enumerate() {
-                        app.environment.window_system.screens[index].number = screen.screen_number as i64;
+                        app.environment.window_system.screens[index].number =
+                            screen.screen_number as i64;
                         app.environment.window_system.screens[index].x = screen.x_org as i64;
                         app.environment.window_system.screens[index].y = screen.y_org as i64;
                         app.environment.window_system.screens[index].width = screen.width as i64;
                         app.environment.window_system.screens[index].height = screen.height as i64;
                     }
                     for _ in screens_amount..n {
-                        let lsw = app.environment.window_system.screens.pop().unwrap().workspaces;
+                        let lsw = app
+                            .environment
+                            .window_system
+                            .screens
+                            .pop()
+                            .unwrap()
+                            .workspaces;
                         for (index, workspace) in lsw.into_iter().enumerate() {
-                            app.environment.window_system.screens[0].workspaces[index].clients.extend(workspace.clients);
+                            app.environment.window_system.screens[0].workspaces[index]
+                                .clients
+                                .extend(workspace.clients);
                         }
                     }
                     arrange(app);
@@ -1299,7 +1484,10 @@ fn main() {
     set_locale(LC_CTYPE, "");
 
     // Run autostart
-    Command::new("/usr/bin/sh").arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh")).status().unwrap();
+    Command::new("/usr/bin/sh")
+        .arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh"))
+        .status()
+        .unwrap();
 
     // Init `app` container
     // App container consists of all data needed for WM to function
