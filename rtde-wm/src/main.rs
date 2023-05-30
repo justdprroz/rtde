@@ -839,6 +839,7 @@ fn send_atom(ws: &mut WindowSystemContainer, win: u64, e: x11::xlib::Atom) -> bo
                     motion: None,
                     unmap: None,
                     property: None,
+                    configure: None,
                     client: Some(x11::xlib::XClientMessageEvent {
                         type_: ClientMessage,
                         serial: 0,
@@ -1218,6 +1219,54 @@ fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
                     );
                     update_client_name(ws, p.window);
                 }
+            }
+            x11::xlib::ConfigureNotify => {
+                let c = ev.configure.unwrap();
+
+                if c.window == ws.root_win {
+                    let n = ws.screens.len();
+                    let screens = xinerama_query_screens(ws.display).expect("Running without xinerama is not supported");
+                    let screens_amount = screens.len();
+                    for _ in n..screens_amount {
+                        ws.screens.push(
+                            Screen {
+                                number: 0,
+                                x: 0,
+                                y: 0,
+                                width: 0,
+                                height: 0,
+                                workspaces: {
+                                    let mut wv = Vec::new();
+                                    for i in 0..10 {
+                                        wv.push(Workspace {
+                                            number: i,
+                                            clients: Vec::new(),
+                                            current_client: None,
+                                            master_capacity: 1,
+                                            master_width: 0.5,
+                                        })
+                                    }
+                                    wv
+                                },
+                                current_workspace: 0 
+                            }
+                        )
+                    }
+                    for (index, screen) in screens.iter().enumerate() {
+                        ws.screens[index].number = screen.screen_number as i64;
+                        ws.screens[index].x = screen.x_org as i64;
+                        ws.screens[index].y = screen.y_org as i64;
+                        ws.screens[index].width = screen.width as i64;
+                        ws.screens[index].height = screen.height as i64;
+                    }
+                    for _ in screens_amount..n {
+                        let lsw = ws.screens.pop().unwrap().workspaces;
+                        for (index, workspace) in lsw.into_iter().enumerate() {
+                            ws.screens[0].workspaces[index].clients.extend(workspace.clients);
+                        }
+                    }
+                }
+                arrange(ws);
             }
             _ => {}
         };
