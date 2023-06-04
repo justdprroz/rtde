@@ -64,13 +64,18 @@ pub mod xlib {
         unsafe { x11::xlib::XSelectInput(display as *mut x11::xlib::Display, w, event_mask) }
     }
 
-    pub fn configure_window(display: &mut x11::xlib::Display, w: u64, valuemask: u32, values: &mut x11::xlib::XWindowChanges) {
+    pub fn configure_window(
+        display: &mut x11::xlib::Display,
+        w: u64,
+        valuemask: u32,
+        values: &mut x11::xlib::XWindowChanges,
+    ) {
         unsafe {
             x11::xlib::XConfigureWindow(
                 display as *mut x11::xlib::Display,
                 w,
                 valuemask,
-                values as *mut x11::xlib::XWindowChanges
+                values as *mut x11::xlib::XWindowChanges,
             );
         }
     }

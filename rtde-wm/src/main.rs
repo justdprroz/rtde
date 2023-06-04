@@ -9,7 +9,6 @@
 mod get_default;
 mod grab;
 use std::mem::size_of;
-use std::process::Command;
 use std::ptr::null_mut;
 use std::vec;
 
@@ -89,13 +88,19 @@ use crate::wrap::xlib::set_window_border;
 use crate::wrap::xlib::set_window_border_width;
 use crate::wrap::xlib::ungrab_server;
 
+extern crate chrono;
+
+#[cfg(debug_assertions)]
+use chrono::Local;
+
 /// Does println! in debug, does nothing in release
 macro_rules! log {
     ($($e:expr),+) => {
         {
             #[cfg(debug_assertions)]
             {
-                println!($($e),+)
+                let date = Local::now();
+                println!("[{}] {}", date.format("%d.%m.%Y %H:%M:%S%.3f"), format!($($e), +));
             }
             #[cfg(not(debug_assertions))]
             {
@@ -168,7 +173,12 @@ fn setup() -> ApplicationContainer {
             KeyAction {
                 modifier: ModKey,
                 keysym: XK_Return,
-                result: ActionResult::Spawn("kitty".to_string()),
+                result: ActionResult::Spawn("alacritty".to_string()),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_e,
+                result: ActionResult::Spawn("thunar".to_string()),
             },
             KeyAction {
                 modifier: ModKey,
@@ -264,6 +274,16 @@ fn setup() -> ApplicationContainer {
                 modifier: ModKey | ShiftMask,
                 keysym: XK_space,
                 result: ActionResult::ToggleFloat,
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_j,
+                result: ActionResult::CycleStack(-1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_k,
+                result: ActionResult::CycleStack(1),
             },
         ];
 
@@ -652,7 +672,14 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     );
     // Set previous client border to normal
     if let Some(cw) = get_current_client_id(app) {
-        set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.normal_border_color);
+        set_window_border(
+            app.environment.window_system.display,
+            cw,
+            app.environment
+                .config
+                .visual_preferences
+                .normal_border_color,
+        );
     }
     // Get current workspace
     let w = &mut app.environment.window_system.screens
@@ -682,10 +709,22 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         height: 0,
         border_width: app.environment.config.visual_preferences.border_size as i32,
         sibling: 0,
-        stack_mode: 0 
+        stack_mode: 0,
     };
-    configure_window(app.environment.window_system.display, win, CWBorderWidth as u32, &mut wc);
-    set_window_border(app.environment.window_system.display, win, app.environment.config.visual_preferences.active_border_color);
+    configure_window(
+        app.environment.window_system.display,
+        win,
+        CWBorderWidth as u32,
+        &mut wc,
+    );
+    set_window_border(
+        app.environment.window_system.display,
+        win,
+        app.environment
+            .config
+            .visual_preferences
+            .active_border_color,
+    );
     // Fetch and set client name
     update_client_name(app, win);
     // Raise window above other`
@@ -701,6 +740,7 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     arrange(app);
     // Finish mapping
     map_window(app.environment.window_system.display, win);
+    log!("   |- Mapped window");
 }
 
 /// Arranges windows of current workspace in specified layout
@@ -761,10 +801,13 @@ fn arrange(app: &mut ApplicationContainer) {
                     // otherwise put it in secondary stack
                     log!("      |- Goes to stack");
                     // a bit more of math...
-                    let win_height =
-                        (screen.height - gw as i64 - (stack_size as i64 - master_capacity) * gw as i64) / (stack_size as i64 - master_capacity);
+                    let win_height = (screen.height
+                        - gw as i64
+                        - (stack_size as i64 - master_capacity) * gw as i64)
+                        / (stack_size as i64 - master_capacity);
                     client.x = master_width as i32 + (gw * 2) as i32;
-                    client.y = gw + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
+                    client.y =
+                        gw + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
                     client.w = stack_width as u32 - 2 * bs;
                     client.h = win_height as u32 - 2 * bs;
                 }
@@ -792,7 +835,7 @@ fn arrange(app: &mut ApplicationContainer) {
                         app.environment.config.visual_preferences.border_size as u32
                     } else {
                         0
-                    }
+                    },
                 );
                 move_resize_window(
                     ws.display,
@@ -1008,7 +1051,9 @@ fn update_active_window(app: &mut ApplicationContainer) {
 fn get_current_client_id(app: &mut ApplicationContainer) -> Option<u64> {
     let ws = &app.environment.window_system;
     if let Some(index) = ws.current_client {
-        Some(ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id)
+        Some(
+            ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id,
+        )
     } else {
         None
     }
@@ -1025,6 +1070,32 @@ fn update_trackers(app: &mut ApplicationContainer, win: u64) {
     };
 }
 
+fn spawn(app: &mut ApplicationContainer, cmd: &String) {
+    unsafe {
+        match nix::unistd::fork() {
+            Ok(nix::unistd::ForkResult::Parent { child: _ }) => {
+                log!("     |- Spawned");
+            }
+            Ok(nix::unistd::ForkResult::Child) => {
+                log!("CHILD SPAWNED");
+                if app.environment.window_system.display as *mut x11::xlib::Display as usize != 0 {
+                    let _ = nix::unistd::close(x11::xlib::XConnectionNumber(
+                        app.environment.window_system.display,
+                    ))
+                    .unwrap();
+                }
+                let args = [
+                    &std::ffi::CString::new("/usr/bin/sh").unwrap(),
+                    &std::ffi::CString::new("-c").unwrap(),
+                    &std::ffi::CString::new(cmd.clone()).unwrap(),
+                ];
+                let _ = nix::unistd::execvp(&args[0], &args);
+            }
+            Err(_) => println!("Fork Failed"),
+        }
+    }
+}
+
 /// Starts main WM loop
 // fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
 fn run(app: &mut ApplicationContainer) {
@@ -1035,6 +1106,7 @@ fn run(app: &mut ApplicationContainer) {
         // Do pattern matching for known events
         match ev.type_ {
             x11::xlib::KeyPress => {
+                log!("|- Got keyboard event");
                 // Safely retrive struct
                 let ev = ev.key.unwrap();
                 // Iterate over key actions matching current key input
@@ -1059,7 +1131,6 @@ fn run(app: &mut ApplicationContainer) {
                                             .clients[index]
                                             .window_id;
                                         log!("      |- Killing window {}", id);
-                                        // Politely ask window to fuck off... I MEAN CLOSE ITSELF
                                         if !send_atom(
                                             app,
                                             id,
@@ -1081,17 +1152,18 @@ fn run(app: &mut ApplicationContainer) {
                             }
                             ActionResult::Spawn(cmd) => {
                                 log!("   |- Got `Spawn` Action");
-                                // Run sh with specified command
-                                let mut handle = Command::new("/usr/bin/sh")
-                                    .arg("-c")
-                                    .arg(cmd)
-                                    .spawn()
-                                    .expect(format!("can't execute {cmd}").as_str());
-                                // Run it in sepated thread
-                                // TODO: WHERE ARE HANDLERS STORED
-                                std::thread::spawn(move || {
-                                    handle.wait().expect("can't run process");
-                                });
+                                spawn(app, cmd);
+                                // // Run sh with specified command
+                                // let mut handle = Command::new("/usr/bin/sh")
+                                //     .arg("-c")
+                                //     .arg(cmd)
+                                //     .spawn()
+                                //     .expect(format!("can't execute {cmd}").as_str());
+                                // // Run it in sepated thread
+                                // // TODO: WHERE ARE HANDLERS STORED
+                                // let _lost_handle = std::thread::Builder::new().name(cmd.to_owned()).spawn(move || {
+                                //     handle.wait().expect("can't run process");
+                                // });
                             }
                             ActionResult::MoveToScreen(d) => {
                                 // Check if window is selected
@@ -1115,7 +1187,14 @@ fn run(app: &mut ApplicationContainer) {
                                         [app.environment.window_system.current_workspace]
                                         .clients
                                         .remove(index);
-                                    set_window_border(app.environment.window_system.display, cc.window_id, app.environment.config.visual_preferences.normal_border_color);
+                                    set_window_border(
+                                        app.environment.window_system.display,
+                                        cc.window_id,
+                                        app.environment
+                                            .config
+                                            .visual_preferences
+                                            .normal_border_color,
+                                    );
                                     // Update client tracker on current screen
                                     shift_current_client(app);
                                     // Get workspace tracker(borrow checker is really mad at me)
@@ -1143,7 +1222,14 @@ fn run(app: &mut ApplicationContainer) {
                                     }
                                 };
                                 if let Some(cw) = get_current_client_id(app) {
-                                    set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.normal_border_color);
+                                    set_window_border(
+                                        app.environment.window_system.display,
+                                        cw,
+                                        app.environment
+                                            .config
+                                            .visual_preferences
+                                            .normal_border_color,
+                                    );
                                 }
                                 // Change trackers
                                 app.environment.window_system.current_screen = cs;
@@ -1173,7 +1259,14 @@ fn run(app: &mut ApplicationContainer) {
                                     update_active_window(app);
                                 }
                                 if let Some(cw) = get_current_client_id(app) {
-                                    set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.active_border_color);
+                                    set_window_border(
+                                        app.environment.window_system.display,
+                                        cw,
+                                        app.environment
+                                            .config
+                                            .visual_preferences
+                                            .active_border_color,
+                                    );
                                 }
                             }
                             ActionResult::MoveToWorkspace(n) => {
@@ -1191,7 +1284,14 @@ fn run(app: &mut ApplicationContainer) {
                                             [app.environment.window_system.current_workspace]
                                             .clients
                                             .remove(index);
-                                        set_window_border(app.environment.window_system.display, cc.window_id, app.environment.config.visual_preferences.normal_border_color);
+                                        set_window_border(
+                                            app.environment.window_system.display,
+                                            cc.window_id,
+                                            app.environment
+                                                .config
+                                                .visual_preferences
+                                                .normal_border_color,
+                                        );
                                         // Update current workspace layout
                                         arrange(app);
                                         // Move window out of view
@@ -1223,7 +1323,14 @@ fn run(app: &mut ApplicationContainer) {
                                     show_hide_workspace(app);
                                     // unfocus current win
                                     if let Some(cw) = get_current_client_id(app) {
-                                        set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.normal_border_color);
+                                        set_window_border(
+                                            app.environment.window_system.display,
+                                            cw,
+                                            app.environment
+                                                .config
+                                                .visual_preferences
+                                                .normal_border_color,
+                                        );
                                     }
                                     // Update workspace index
                                     app.environment.window_system.current_workspace = *n as usize;
@@ -1238,7 +1345,14 @@ fn run(app: &mut ApplicationContainer) {
                                             [app.environment.window_system.current_workspace]
                                             .current_client;
                                     if let Some(cw) = get_current_client_id(app) {
-                                        set_window_border(app.environment.window_system.display, cw, app.environment.config.visual_preferences.active_border_color);
+                                        set_window_border(
+                                            app.environment.window_system.display,
+                                            cw,
+                                            app.environment
+                                                .config
+                                                .visual_preferences
+                                                .active_border_color,
+                                        );
                                     }
                                     // Show current client
                                     show_hide_workspace(app);
@@ -1306,6 +1420,7 @@ fn run(app: &mut ApplicationContainer) {
                                     arrange(app);
                                 }
                             }
+                            ActionResult::CycleStack(_i) => {}
                         }
                     }
                 }
@@ -1328,9 +1443,23 @@ fn run(app: &mut ApplicationContainer) {
                 log!("   |- Setting focus to window");
                 // Focus on crossed window
                 if let Some(cw) = get_current_client_id(app) {
-                    set_window_border(app.environment.window_system.display,cw, app.environment.config.visual_preferences.normal_border_color);
+                    set_window_border(
+                        app.environment.window_system.display,
+                        cw,
+                        app.environment
+                            .config
+                            .visual_preferences
+                            .normal_border_color,
+                    );
                 }
-                set_window_border(app.environment.window_system.display, ew, app.environment.config.visual_preferences.active_border_color);
+                set_window_border(
+                    app.environment.window_system.display,
+                    ew,
+                    app.environment
+                        .config
+                        .visual_preferences
+                        .active_border_color,
+                );
                 update_trackers(app, ew);
                 update_active_window(app);
                 set_input_focus(
@@ -1396,7 +1525,7 @@ fn run(app: &mut ApplicationContainer) {
             x11::xlib::PropertyNotify => {
                 // Safely retrive event struct
                 let p = ev.property.unwrap();
-
+                log!("|- Got property notify");
                 // If current window is not root proceed to updating name
                 if p.window != app.environment.window_system.root_win {
                     log!(
@@ -1409,7 +1538,7 @@ fn run(app: &mut ApplicationContainer) {
             }
             x11::xlib::ConfigureNotify => {
                 let c = ev.configure.unwrap();
-
+                log!("|- Got ConfigureNotify");
                 if c.window == app.environment.window_system.root_win {
                     let n = app.environment.window_system.screens.len();
                     let screens = xinerama_query_screens(app.environment.window_system.display)
@@ -1480,15 +1609,29 @@ fn main() {
     // For example: getting names of windows
     set_locale(LC_CTYPE, "");
 
+    // Disable zombie processes
+    unsafe {
+        let sa = nix::sys::signal::SigAction::new(
+            nix::sys::signal::SigHandler::SigIgn,
+            nix::sys::signal::SaFlags::SA_NOCLDSTOP
+                | nix::sys::signal::SaFlags::SA_NOCLDWAIT
+                | nix::sys::signal::SaFlags::SA_RESTART,
+            nix::sys::signal::SigSet::empty(),
+        );
+        let _ = nix::sys::signal::sigaction(nix::sys::signal::Signal::SIGCHLD, &sa);
+    }
+
     // Run autostart
-    Command::new("/usr/bin/sh")
-        .arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh"))
-        .status()
-        .unwrap();
+    // Command::new("/usr/bin/sh")
+    //     .arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh"))
+    //     .status()
+    //     .unwrap();
 
     // Init `app` container
     // App container consists of all data needed for WM to function
     let mut app: ApplicationContainer = setup();
+
+    spawn(&mut app, &format!("{} {}/{}", "/usr/bin/sh", std::env!("HOME"), ".rtde/autostart.sh"));
 
     // Scan for existing windows
     scan(&mut app);
