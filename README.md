@@ -3,6 +3,7 @@
 ## Requirement
 - ```dmenu``` as application laucnher
 - ```kitty``` as terminal app
+- ```thunar``` as file manager
 
 ## Features
 - Autostart script located in ```~/.rtde/autostart.sh```

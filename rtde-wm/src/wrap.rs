@@ -299,6 +299,9 @@ pub mod xlib {
                 x11::xlib::ConfigureNotify => {
                     event.configure = Some(ev.configure);
                 }
+                x11::xlib::ClientMessage => {
+                    event.client = Some(ev.client_message);
+                }
                 _ => {}
             };
             event
