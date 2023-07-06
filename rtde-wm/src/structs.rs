@@ -58,6 +58,8 @@ pub enum ActionResult {
     MoveToWorkspace(u64),
     /// Focuses on specified workspace on current screen
     FocusOnWorkspace(u64),
+    /// Cycle Stack
+    CycleStack(i64),
     /// Temporaly maximazes window (NOT YET IMPLEMENTED)
     ToggleFloat,
     /// Dumps all states to logs

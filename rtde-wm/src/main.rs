@@ -9,7 +9,6 @@
 mod get_default;
 mod grab;
 use std::mem::size_of;
-use std::process::Command;
 use std::ptr::null_mut;
 use std::vec;
 
@@ -89,6 +88,11 @@ use crate::wrap::xlib::set_window_border;
 use crate::wrap::xlib::set_window_border_width;
 use crate::wrap::xlib::ungrab_server;
 
+extern crate chrono;
+
+#[cfg(debug_assertions)]
+use chrono::Local;
+
 /// Does println! in debug, does nothing in release
 macro_rules! log {
     ($($e:expr),+) => {
@@ -160,7 +164,12 @@ fn setup() -> ApplicationContainer {
             KeyAction {
                 modifier: ModKey,
                 keysym: XK_Return,
-                result: ActionResult::Spawn("kitty".to_string()),
+                result: ActionResult::Spawn("alacritty".to_string()),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_e,
+                result: ActionResult::Spawn("thunar".to_string()),
             },
             KeyAction {
                 modifier: ModKey,
@@ -261,6 +270,16 @@ fn setup() -> ApplicationContainer {
                 modifier: ModKey | ShiftMask,
                 keysym: XK_space,
                 result: ActionResult::ToggleFloat,
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_j,
+                result: ActionResult::CycleStack(-1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_k,
+                result: ActionResult::CycleStack(1),
             },
         ];
 
@@ -717,6 +736,7 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     arrange(app);
     // Finish mapping
     map_window(app.environment.window_system.display, win);
+    log!("   |- Mapped window");
 }
 
 /// Arranges windows of current workspace in specified layout
@@ -1056,6 +1076,32 @@ fn update_trackers(app: &mut ApplicationContainer, win: u64) {
     };
 }
 
+fn spawn(app: &mut ApplicationContainer, cmd: &String) {
+    unsafe {
+        match nix::unistd::fork() {
+            Ok(nix::unistd::ForkResult::Parent { child: _ }) => {
+                log!("     |- Spawned");
+            }
+            Ok(nix::unistd::ForkResult::Child) => {
+                log!("CHILD SPAWNED");
+                if app.environment.window_system.display as *mut x11::xlib::Display as usize != 0 {
+                    let _ = nix::unistd::close(x11::xlib::XConnectionNumber(
+                        app.environment.window_system.display,
+                    ))
+                    .unwrap();
+                }
+                let args = [
+                    &std::ffi::CString::new("/usr/bin/sh").unwrap(),
+                    &std::ffi::CString::new("-c").unwrap(),
+                    &std::ffi::CString::new(cmd.clone()).unwrap(),
+                ];
+                let _ = nix::unistd::execvp(&args[0], &args);
+            }
+            Err(_) => println!("Fork Failed"),
+        }
+    }
+}
+
 /// Starts main WM loop
 // fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
 fn run(app: &mut ApplicationContainer) {
@@ -1066,6 +1112,7 @@ fn run(app: &mut ApplicationContainer) {
         // Do pattern matching for known events
         match ev.type_ {
             x11::xlib::KeyPress => {
+                log!("|- Got keyboard event");
                 // Safely retrive struct
                 let ev = ev.key.unwrap();
                 // Iterate over key actions matching current key input
@@ -1090,7 +1137,6 @@ fn run(app: &mut ApplicationContainer) {
                                             .clients[index]
                                             .window_id;
                                         log!("      |- Killing window {}", id);
-                                        // Politely ask window to fuck off... I MEAN CLOSE ITSELF
                                         if !send_atom(
                                             app,
                                             id,
@@ -1112,17 +1158,18 @@ fn run(app: &mut ApplicationContainer) {
                             }
                             ActionResult::Spawn(cmd) => {
                                 log!("   |- Got `Spawn` Action");
-                                // Run sh with specified command
-                                let mut handle = Command::new("/usr/bin/sh")
-                                    .arg("-c")
-                                    .arg(cmd)
-                                    .spawn()
-                                    .expect(format!("can't execute {cmd}").as_str());
-                                // Run it in sepated thread
-                                // TODO: WHERE ARE HANDLERS STORED
-                                std::thread::spawn(move || {
-                                    handle.wait().expect("can't run process");
-                                });
+                                spawn(app, cmd);
+                                // // Run sh with specified command
+                                // let mut handle = Command::new("/usr/bin/sh")
+                                //     .arg("-c")
+                                //     .arg(cmd)
+                                //     .spawn()
+                                //     .expect(format!("can't execute {cmd}").as_str());
+                                // // Run it in sepated thread
+                                // // TODO: WHERE ARE HANDLERS STORED
+                                // let _lost_handle = std::thread::Builder::new().name(cmd.to_owned()).spawn(move || {
+                                //     handle.wait().expect("can't run process");
+                                // });
                             }
                             ActionResult::MoveToScreen(d) => {
                                 // Check if window is selected
@@ -1379,6 +1426,7 @@ fn run(app: &mut ApplicationContainer) {
                                     arrange(app);
                                 }
                             }
+                            ActionResult::CycleStack(_i) => {}
                         }
                     }
                 }
@@ -1483,7 +1531,7 @@ fn run(app: &mut ApplicationContainer) {
             x11::xlib::PropertyNotify => {
                 // Safely retrive event struct
                 let p = ev.property.unwrap();
-
+                log!("|- Got property notify");
                 // If current window is not root proceed to updating name
                 if p.window != app.environment.window_system.root_win {
                     log!(
@@ -1496,7 +1544,7 @@ fn run(app: &mut ApplicationContainer) {
             }
             x11::xlib::ConfigureNotify => {
                 let c = ev.configure.unwrap();
-
+                log!("|- Got ConfigureNotify");
                 if c.window == app.environment.window_system.root_win {
                     let n = app.environment.window_system.screens.len();
                     let screens = xinerama_query_screens(app.environment.window_system.display)
@@ -1615,15 +1663,29 @@ fn main() {
     // For example: getting names of windows
     set_locale(LC_CTYPE, "");
 
+    // Disable zombie processes
+    unsafe {
+        let sa = nix::sys::signal::SigAction::new(
+            nix::sys::signal::SigHandler::SigIgn,
+            nix::sys::signal::SaFlags::SA_NOCLDSTOP
+                | nix::sys::signal::SaFlags::SA_NOCLDWAIT
+                | nix::sys::signal::SaFlags::SA_RESTART,
+            nix::sys::signal::SigSet::empty(),
+        );
+        let _ = nix::sys::signal::sigaction(nix::sys::signal::Signal::SIGCHLD, &sa);
+    }
+
     // Run autostart
-    Command::new("/usr/bin/sh")
-        .arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh"))
-        .status()
-        .unwrap();
+    // Command::new("/usr/bin/sh")
+    //     .arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh"))
+    //     .status()
+    //     .unwrap();
 
     // Init `app` container
     // App container consists of all data needed for WM to function
     let mut app: ApplicationContainer = setup();
+
+    spawn(&mut app, &format!("{} {}/{}", "/usr/bin/sh", std::env!("HOME"), ".rtde/autostart.sh"));
 
     // Scan for existing windows
     scan(&mut app);
