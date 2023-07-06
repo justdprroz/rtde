@@ -90,9 +90,6 @@ use crate::wrap::xlib::ungrab_server;
 
 extern crate chrono;
 
-#[cfg(debug_assertions)]
-use chrono::Local;
-
 /// Does println! in debug, does nothing in release
 macro_rules! log {
     ($($e:expr),+) => {
@@ -164,7 +161,7 @@ fn setup() -> ApplicationContainer {
             KeyAction {
                 modifier: ModKey,
                 keysym: XK_Return,
-                result: ActionResult::Spawn("alacritty".to_string()),
+                result: ActionResult::Spawn("kitty".to_string()),
             },
             KeyAction {
                 modifier: ModKey,
@@ -175,11 +172,6 @@ fn setup() -> ApplicationContainer {
                 modifier: ModKey,
                 keysym: XK_p,
                 result: ActionResult::Spawn("dmenu_run".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_e,
-                result: ActionResult::Spawn("thunar".to_string()),
             },
             KeyAction {
                 modifier: 0,
@@ -644,6 +636,13 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         c.maxh = 0;
         c.minw = 0;
         c.minh = 0;
+    }
+
+    if c.minw != 0 {
+        c.w = c.minw as u32;
+    }
+    if c.minh != 0 {
+        c.h = c.minh as u32;
     }
 
     // Set fixed if max = min and if not zero(no size restrictions)
