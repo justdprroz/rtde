@@ -58,7 +58,6 @@ use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::Success;
-use x11::xlib::XMoveResizeWindow;
 use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_WINDOW;
@@ -93,16 +92,8 @@ use crate::wrap::xlib::ungrab_server;
 /// Does println! in debug, does nothing in release
 macro_rules! log {
     ($($e:expr),+) => {
-        {
-            #[cfg(debug_assertions)]
-            {
-                println!($($e),+)
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                ($($e),+)
-            }
-        }
+        #[cfg(debug_assertions)]
+        println!($($e),+);
     };
 }
 
@@ -175,6 +166,11 @@ fn setup() -> ApplicationContainer {
                 modifier: ModKey,
                 keysym: XK_p,
                 result: ActionResult::Spawn("dmenu_run".to_string()),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_e,
+                result: ActionResult::Spawn("thunar".to_string()),
             },
             KeyAction {
                 modifier: 0,
@@ -877,18 +873,28 @@ fn show_hide_workspace(app: &mut ApplicationContainer) {
 }
 
 /// Shifts current client tracker after destroying clients
-fn shift_current_client(app: &mut ApplicationContainer) {
+fn shift_current_client(app: &mut ApplicationContainer, screen: Option<usize>, workspace: Option<usize>) {
+    let screen = match screen {
+        Some(index) => index,
+        None => app.environment.window_system.current_screen,
+    };
+
+    let workspace = match workspace {
+        Some(index) => index,
+        None => app.environment.window_system.current_workspace,
+    };
+
     let ws = &mut app.environment.window_system;
     // Find next client
-    ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client = {
+    ws.screens[screen].workspaces[workspace].current_client = {
         // Get reference to windows stack
-        let clients = &ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients;
+        let clients = &ws.screens[screen].workspaces[workspace].clients;
         if clients.len() == 0 {
             // None if no windows
             None
         } else {
             // Get old client index
-            let cc = ws.screens[ws.current_screen].workspaces[ws.current_workspace]
+            let cc = ws.screens[screen].workspaces[workspace]
                 .current_client
                 .expect("WHAT THE FUCK");
             // If selected client was not last do nothing
@@ -902,10 +908,10 @@ fn shift_current_client(app: &mut ApplicationContainer) {
     };
     // update secondary tracker
     ws.current_client =
-        ws.screens[ws.current_screen].workspaces[ws.current_workspace].current_client;
+        ws.screens[screen].workspaces[workspace].current_client;
     if let Some(index) = ws.current_client {
         let win =
-            ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id;
+            ws.screens[screen].workspaces[workspace].clients[index].window_id;
         set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
     }
     update_active_window(app);
@@ -1002,7 +1008,7 @@ fn unmanage_window(app: &mut ApplicationContainer, win: u64) {
         let clients = &mut app.environment.window_system.screens[s].workspaces[w].clients;
         clients.remove(c);
         // Update client tracker
-        shift_current_client(app);
+        shift_current_client(app, Some(s), Some(w));
         // Rearrange
         arrange(app);
     } else {
@@ -1149,7 +1155,7 @@ fn run(app: &mut ApplicationContainer) {
                                             .normal_border_color,
                                     );
                                     // Update client tracker on current screen
-                                    shift_current_client(app);
+                                    shift_current_client(app, None, None);
                                     // Get workspace tracker(borrow checker is really mad at me)
                                     let nw =
                                         app.environment.window_system.screens[cs].current_workspace;
@@ -1258,7 +1264,7 @@ fn run(app: &mut ApplicationContainer) {
                                         );
                                         cc.visible = !cc.visible;
                                         // Update tracker
-                                        shift_current_client(app);
+                                        shift_current_client(app, None, None);
                                         // Add client to choosen workspace (will be arranged later)
                                         app.environment.window_system.screens
                                             [app.environment.window_system.current_screen]
@@ -1550,7 +1556,7 @@ fn run(app: &mut ApplicationContainer) {
                     let cc = &mut app.environment.window_system.screens[cc.0].workspaces[cc.1]
                         .clients[cc.2];
                     log!("|- Got `message`");
-                    log!("   |- From: `{}`", cc.window_name);
+                    log!("   |- From: `{}`", &cc.window_name);
                     if c.message_type == app.environment.window_system.atoms.net_wm_state {
                         log!("   |- Type: `window state`");
                         if c.data.get_long(1) as u64
