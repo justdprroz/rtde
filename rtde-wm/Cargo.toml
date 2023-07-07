@@ -9,7 +9,6 @@ name = "rtwm"
 path = "src/main.rs"
 
 [dependencies]
-chrono = "0.4.26"
 libc = "0.2.133"
 nix = "0.26.2"
 x11 = "2.20.0"

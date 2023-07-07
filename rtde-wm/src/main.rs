@@ -89,8 +89,6 @@ use crate::wrap::xlib::set_window_border;
 use crate::wrap::xlib::set_window_border_width;
 use crate::wrap::xlib::ungrab_server;
 
-extern crate chrono;
-
 /// Does println! in debug, does nothing in release
 macro_rules! log {
     ($($e:expr),+) => {
