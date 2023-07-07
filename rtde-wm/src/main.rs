@@ -321,7 +321,7 @@ fn setup() -> ApplicationContainer {
     // Init variables
     // app.env.win.var.dis was already initialized (Proof me wrong)
     app.environment.window_system.root_win =
-        default_root_window(&mut app.environment.window_system.display);
+        default_root_window(app.environment.window_system.display);
 
     let dpy = &mut app.environment.window_system.display;
 
@@ -778,33 +778,29 @@ fn arrange(app: &mut ApplicationContainer) {
                 client.y = 0;
                 client.w = screen.width as u32;
                 client.h = screen.height as u32;
+            } else if (index as i64) < master_capacity {
+                // if master_capacity is not full put it here
+                log!("      |- Goes to master");
+                // some math...
+                let win_height =
+                    (screen.height - gw as i64 - master_capacity * gw as i64) / master_capacity;
+                // Add gap offset to the left
+                client.x = gw;
+                // Top gap + clients with their gaps offset
+                client.y = gw + (win_height as i32 + gw) * index as i32;
+                client.w = master_width - 2 * bs;
+                client.h = win_height as u32 - 2 * bs
             } else {
-                if (index as i64) < master_capacity {
-                    // if master_capacity is not full put it here
-                    log!("      |- Goes to master");
-                    // some math...
-                    let win_height =
-                        (screen.height - gw as i64 - master_capacity * gw as i64) / master_capacity;
-                    // Add gap offset to the left
-                    client.x = 0 + gw;
-                    // Top gap + clients with their gaps offset
-                    client.y = gw + (win_height as i32 + gw) * index as i32;
-                    client.w = master_width - 2 * bs;
-                    client.h = win_height as u32 - 2 * bs
-                } else {
-                    // otherwise put it in secondary stack
-                    log!("      |- Goes to stack");
-                    // a bit more of math...
-                    let win_height = (screen.height
-                        - gw as i64
-                        - (stack_size as i64 - master_capacity) * gw as i64)
+                // otherwise put it in secondary stack
+                log!("      |- Goes to stack");
+                // a bit more of math...
+                let win_height =
+                    (screen.height - gw as i64 - (stack_size as i64 - master_capacity) * gw as i64)
                         / (stack_size as i64 - master_capacity);
-                    client.x = master_width as i32 + (gw * 2) as i32;
-                    client.y =
-                        gw + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
-                    client.w = stack_width as u32 - 2 * bs;
-                    client.h = win_height as u32 - 2 * bs;
-                }
+                client.x = master_width as i32 + (gw * 2);
+                client.y = gw + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
+                client.w = stack_width as u32 - 2 * bs;
+                client.h = win_height as u32 - 2 * bs;
             }
         }
 
@@ -856,7 +852,7 @@ fn find_window_indexes(app: &mut ApplicationContainer, win: u64) -> Option<(usiz
             }
         }
     }
-    return None;
+    None
 }
 
 /// Shows/Hides all windows on current workspace
@@ -869,18 +865,8 @@ fn show_hide_workspace(app: &mut ApplicationContainer) {
             move_resize_window(
                 ws.display,
                 client.window_id,
-                client.w as i32 * -1,
-                client.h as i32 * -1,
-                client.w,
-                client.h,
-            );
-        } else {
-            // move to normal position
-            move_resize_window(
-                ws.display,
-                client.window_id,
-                client.w as i32 * -1,
-                client.h as i32 * -1,
+                -(client.w as i32),
+                -(client.h as i32),
                 client.w,
                 client.h,
             );
@@ -911,7 +897,7 @@ fn shift_current_client(
     ws.screens[screen].workspaces[workspace].current_client = {
         // Get reference to windows stack
         let clients = &ws.screens[screen].workspaces[workspace].clients;
-        if clients.len() == 0 {
+        if clients.is_empty() {
             // None if no windows
             None
         } else {
@@ -982,9 +968,9 @@ fn send_atom(app: &mut ApplicationContainer, win: u64, e: x11::xlib::Atom) -> bo
                 );
             }
         }
-        return false;
+        false
     } else {
-        return false;
+        false
     }
 }
 
@@ -993,7 +979,7 @@ fn get_atom_prop(app: &mut ApplicationContainer, win: u64, prop: Atom) -> Atom {
     let mut dummy_atom: u64 = 0;
     let mut dummy_int = 0;
     let mut dummy_long: u64 = 0;
-    let mut property_return: *mut u8 = 0 as *mut u8;
+    let mut property_return: *mut u8 = std::ptr::null_mut::<u8>();
     let mut atom: u64 = 0;
     unsafe {
         if x11::xlib::XGetWindowProperty(
@@ -1001,7 +987,7 @@ fn get_atom_prop(app: &mut ApplicationContainer, win: u64, prop: Atom) -> Atom {
             win,
             prop,
             0,
-            size_of::<Atom> as i64,
+            size_of::<Atom>() as i64,
             0,
             XA_ATOM,
             &mut dummy_atom as *mut u64,
@@ -1058,13 +1044,7 @@ fn update_active_window(app: &mut ApplicationContainer) {
 
 fn get_current_client_id(app: &mut ApplicationContainer) -> Option<u64> {
     let ws = &app.environment.window_system;
-    if let Some(index) = ws.current_client {
-        Some(
-            ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id,
-        )
-    } else {
-        None
-    }
+    ws.current_client.map(|index| ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id)
 }
 
 fn update_trackers(app: &mut ApplicationContainer, win: u64) {
@@ -1078,7 +1058,7 @@ fn update_trackers(app: &mut ApplicationContainer, win: u64) {
     };
 }
 
-fn spawn(app: &mut ApplicationContainer, cmd: &String) {
+fn spawn(app: &mut ApplicationContainer, cmd: &str) {
     unsafe {
         match nix::unistd::fork() {
             Ok(nix::unistd::ForkResult::Parent { child: _ }) => {
@@ -1087,7 +1067,7 @@ fn spawn(app: &mut ApplicationContainer, cmd: &String) {
             Ok(nix::unistd::ForkResult::Child) => {
                 log!("CHILD SPAWNED");
                 if app.environment.window_system.display as *mut x11::xlib::Display as usize != 0 {
-                    let _ = nix::unistd::close(x11::xlib::XConnectionNumber(
+                    nix::unistd::close(x11::xlib::XConnectionNumber(
                         app.environment.window_system.display,
                     ))
                     .unwrap();
@@ -1095,9 +1075,9 @@ fn spawn(app: &mut ApplicationContainer, cmd: &String) {
                 let args = [
                     &std::ffi::CString::new("/usr/bin/sh").unwrap(),
                     &std::ffi::CString::new("-c").unwrap(),
-                    &std::ffi::CString::new(cmd.clone()).unwrap(),
+                    &std::ffi::CString::new(cmd.to_owned()).unwrap(),
                 ];
-                let _ = nix::unistd::execvp(&args[0], &args);
+                let _ = nix::unistd::execvp(args[0], &args);
             }
             Err(_) => println!("Fork Failed"),
         }
@@ -1329,8 +1309,8 @@ fn run(app: &mut ApplicationContainer) {
                                         move_resize_window(
                                             app.environment.window_system.display,
                                             cc.window_id,
-                                            cc.w as i32 * -1,
-                                            cc.h as i32 * -1,
+                                            -(cc.w as i32),
+                                            -(cc.h as i32),
                                             cc.w,
                                             cc.h,
                                         );
@@ -1506,8 +1486,7 @@ fn run(app: &mut ApplicationContainer) {
 
                     if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
                         .clients
-                        .len()
-                        == 0
+                        .is_empty()
                     {
                         set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
                         delete_property(ws.display, ws.root_win, ws.atoms.net_active_window);
@@ -1675,7 +1654,7 @@ fn run(app: &mut ApplicationContainer) {
                                     XA_ATOM,
                                     32,
                                     PropModeReplace,
-                                    0 as *mut u8,
+                                    std::ptr::null_mut::<u8>(),
                                     0,
                                 );
                                 cc.fullscreen = false;
