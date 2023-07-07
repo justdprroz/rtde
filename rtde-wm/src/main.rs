@@ -67,6 +67,7 @@ use crate::wrap::xlib::change_window_attributes;
 use crate::wrap::xlib::configure_window;
 use crate::wrap::xlib::create_simple_window;
 use crate::wrap::xlib::default_root_window;
+use crate::wrap::xlib::delete_property;
 use crate::wrap::xlib::get_transient_for_hint;
 use crate::wrap::xlib::get_window_attributes;
 use crate::wrap::xlib::grab_server;
@@ -638,10 +639,10 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         c.minh = 0;
     }
 
-    if c.minw != 0 {
+    if c.minw != 0 && c.w < c.minw as u32 {
         c.w = c.minw as u32;
     }
-    if c.minh != 0 {
+    if c.minh != 0 && c.h < c.minh as u32 {
         c.h = c.minh as u32;
     }
 
@@ -892,7 +893,11 @@ fn show_hide_workspace(app: &mut ApplicationContainer) {
 }
 
 /// Shifts current client tracker after destroying clients
-fn shift_current_client(app: &mut ApplicationContainer, screen: Option<usize>, workspace: Option<usize>) {
+fn shift_current_client(
+    app: &mut ApplicationContainer,
+    screen: Option<usize>,
+    workspace: Option<usize>,
+) {
     let screen = match screen {
         Some(index) => index,
         None => app.environment.window_system.current_screen,
@@ -926,11 +931,9 @@ fn shift_current_client(app: &mut ApplicationContainer, screen: Option<usize>, w
         }
     };
     // update secondary tracker
-    ws.current_client =
-        ws.screens[screen].workspaces[workspace].current_client;
+    ws.current_client = ws.screens[screen].workspaces[workspace].current_client;
     if let Some(index) = ws.current_client {
-        let win =
-            ws.screens[screen].workspaces[workspace].clients[index].window_id;
+        let win = ws.screens[screen].workspaces[workspace].clients[index].window_id;
         set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
     }
     update_active_window(app);
@@ -1030,6 +1033,8 @@ fn unmanage_window(app: &mut ApplicationContainer, win: u64) {
         shift_current_client(app, Some(s), Some(w));
         // Rearrange
         arrange(app);
+        // update client List
+        update_client_list(app);
     } else {
         log!("   |- Window is not managed");
     }
@@ -1097,6 +1102,29 @@ fn spawn(app: &mut ApplicationContainer, cmd: &String) {
                 let _ = nix::unistd::execvp(&args[0], &args);
             }
             Err(_) => println!("Fork Failed"),
+        }
+    }
+}
+
+fn update_client_list(app: &mut ApplicationContainer) {
+    let ws = &mut app.environment.window_system;
+
+    delete_property(ws.display, ws.root_win, ws.atoms.net_client_list);
+
+    for screen in &app.environment.window_system.screens {
+        for workspace in &screen.workspaces {
+            for client in &workspace.clients {
+                change_property(
+                    app.environment.window_system.display,
+                    app.environment.window_system.root_win,
+                    app.environment.window_system.atoms.net_client_list,
+                    XA_WINDOW,
+                    32,
+                    PropModeAppend,
+                    &client.window_id as *const u64 as *mut u8,
+                    1,
+                );
+            }
         }
     }
 }
@@ -1442,37 +1470,51 @@ fn run(app: &mut ApplicationContainer) {
             x11::xlib::EnterNotify => {
                 let ew: u64 = ev.crossing.unwrap().window;
                 log!(
-                    "|- Crossed Window `{}`",
-                    get_client_name(app, ew).unwrap_or("Unmanaged window".to_string())
+                    "|- Crossed Window `{}` ({})",
+                    get_client_name(app, ew).unwrap_or("Unmanaged window".to_string()),
+                    ew
                 );
-                log!("   |- Setting focus to window");
-                // Focus on crossed window
-                if let Some(cw) = get_current_client_id(app) {
+                if ew != app.environment.window_system.root_win {
+                    log!("   |- Setting focus to window");
+                    // Focus on crossed window
+                    if let Some(cw) = get_current_client_id(app) {
+                        set_window_border(
+                            app.environment.window_system.display,
+                            cw,
+                            app.environment
+                                .config
+                                .visual_preferences
+                                .normal_border_color,
+                        );
+                    }
                     set_window_border(
                         app.environment.window_system.display,
-                        cw,
+                        ew,
                         app.environment
                             .config
                             .visual_preferences
-                            .normal_border_color,
+                            .active_border_color,
                     );
+                    update_trackers(app, ew);
+                    update_active_window(app);
+                    set_input_focus(
+                        app.environment.window_system.display,
+                        ew,
+                        RevertToPointerRoot,
+                        CurrentTime,
+                    );
+                } else {
+                    let ws = &mut app.environment.window_system;
+
+                    if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
+                        .clients
+                        .len()
+                        == 0
+                    {
+                        set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
+                        delete_property(ws.display, ws.root_win, ws.atoms.net_active_window);
+                    }
                 }
-                set_window_border(
-                    app.environment.window_system.display,
-                    ew,
-                    app.environment
-                        .config
-                        .visual_preferences
-                        .active_border_color,
-                );
-                update_trackers(app, ew);
-                update_active_window(app);
-                set_input_focus(
-                    app.environment.window_system.display,
-                    ew,
-                    RevertToPointerRoot,
-                    CurrentTime,
-                );
             }
 
             // Used to unmanage_window
@@ -1636,7 +1678,7 @@ fn run(app: &mut ApplicationContainer) {
                                     32,
                                     PropModeReplace,
                                     0 as *mut u8,
-                                    0
+                                    0,
                                 );
                                 cc.fullscreen = false;
                                 arrange(app);
@@ -1684,7 +1726,15 @@ fn main() {
     // App container consists of all data needed for WM to function
     let mut app: ApplicationContainer = setup();
 
-    spawn(&mut app, &format!("{} {}/{}", "/usr/bin/sh", std::env!("HOME"), ".rtde/autostart.sh"));
+    spawn(
+        &mut app,
+        &format!(
+            "{} {}/{}",
+            "/usr/bin/sh",
+            std::env!("HOME"),
+            ".rtde/autostart.sh"
+        ),
+    );
 
     // Scan for existing windows
     scan(&mut app);

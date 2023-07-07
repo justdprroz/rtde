@@ -44,6 +44,12 @@ pub mod xlib {
         }
     }
 
+    pub fn delete_property(display: &mut x11::xlib::Display, w: u64, property: x11::xlib::Atom) {
+        unsafe {
+            x11::xlib::XDeleteProperty(display as *mut x11::xlib::Display, w, property);
+        }
+    }
+
     pub fn change_window_attributes(
         display: &mut x11::xlib::Display,
         w: u64,
