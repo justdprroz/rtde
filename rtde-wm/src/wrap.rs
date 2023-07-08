@@ -112,6 +112,52 @@ pub mod xlib {
         }
     }
 
+    pub fn set_class_hints(display: &mut x11::xlib::Display, w: u64, class_hints: &mut x11::xlib::XClassHint) {
+        unsafe {
+            x11::xlib::XSetClassHint(display as *mut x11::xlib::Display, w, class_hints as *mut x11::xlib::XClassHint);
+        }
+    }
+
+    pub fn create_window(
+        display: &mut x11::xlib::Display,
+        parent: u64,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        border_width: u32,
+        depth: i32,
+        class: u32,
+        visual: &mut x11::xlib::Visual,
+        valuemask: u64,
+        attributes: &mut x11::xlib::XSetWindowAttributes,
+    ) -> u64 {
+        unsafe {
+            x11::xlib::XCreateWindow(
+                display as *mut x11::xlib::Display,
+                parent,
+                x,
+                y,
+                width,
+                height,
+                border_width,
+                depth,
+                class,
+                visual as *mut x11::xlib::Visual,
+                valuemask,
+                attributes as *mut x11::xlib::XSetWindowAttributes,
+            )
+        }
+    }
+
+    pub fn default_depth(display: &mut x11::xlib::Display, number: i32) -> i32 {
+        unsafe { x11::xlib::XDefaultDepth(display as *mut x11::xlib::Display, number) }
+    }
+
+    pub fn default_visual(display: &mut x11::xlib::Display, number: i32) -> *mut x11::xlib::Visual {
+        unsafe { x11::xlib::XDefaultVisual(display as *mut x11::xlib::Display, number) }
+    }
+
     pub fn query_tree(display: &mut x11::xlib::Display, w: u64) -> (u64, u64, Vec<u64>) {
         unsafe {
             let mut root_return: u64 = 0;

@@ -98,7 +98,6 @@ pub struct Atoms {
 
 /// Stores all states required by WM to operate
 pub struct WindowSystemContainer {
-    pub status_bar: StatusBarContainer,
     pub screens: Vec<Screen>,
     pub current_screen: usize,
     pub current_workspace: usize,
@@ -113,7 +112,6 @@ pub struct WindowSystemContainer {
 impl std::fmt::Debug for WindowSystemContainer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WindowSystemContainer")
-            .field("status_bar", &self.status_bar)
             .field("screens", &self.screens)
             .field("current_screen", &self.current_screen)
             .field("current_workspace", &self.current_workspace)
@@ -126,7 +124,10 @@ impl std::fmt::Debug for WindowSystemContainer {
 }
 
 #[derive(Debug)]
-pub struct StatusBarContainer {}
+pub struct StatusBarContainer {
+    pub height: u64,
+    pub win: u64,
+}
 
 /// Stores info about screen
 #[derive(Debug)]
@@ -141,6 +142,7 @@ pub struct Screen {
     pub workspaces: Vec<Workspace>,
     /// Currently selected workspace
     pub current_workspace: usize,
+    pub status_bar: StatusBarContainer,
 }
 
 #[derive(Debug)]

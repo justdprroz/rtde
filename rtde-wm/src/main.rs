@@ -33,10 +33,13 @@ use wrap::xlib::Event;
 use x11::keysym::*;
 use x11::xlib::Atom;
 use x11::xlib::ButtonPressMask;
+use x11::xlib::CWBackPixmap;
 use x11::xlib::CWBorderWidth;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
+use x11::xlib::CWOverrideRedirect;
 use x11::xlib::ClientMessage;
+use x11::xlib::CopyFromParent;
 use x11::xlib::CurrentTime;
 use x11::xlib::DestroyAll;
 use x11::xlib::EnterWindowMask;
@@ -47,6 +50,7 @@ use x11::xlib::Mod1Mask as ModKey;
 use x11::xlib::NoEventMask;
 use x11::xlib::PMaxSize;
 use x11::xlib::PMinSize;
+use x11::xlib::ParentRelative;
 use x11::xlib::PointerMotionMask;
 use x11::xlib::PropModeAppend;
 use x11::xlib::PropModeReplace;
@@ -57,6 +61,7 @@ use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::Success;
+use x11::xlib::XClassHint;
 use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_WINDOW;
@@ -66,7 +71,10 @@ use crate::wrap::xlib::change_property;
 use crate::wrap::xlib::change_window_attributes;
 use crate::wrap::xlib::configure_window;
 use crate::wrap::xlib::create_simple_window;
+use crate::wrap::xlib::create_window;
+use crate::wrap::xlib::default_depth;
 use crate::wrap::xlib::default_root_window;
+use crate::wrap::xlib::default_visual;
 use crate::wrap::xlib::delete_property;
 use crate::wrap::xlib::get_transient_for_hint;
 use crate::wrap::xlib::get_window_attributes;
@@ -80,6 +88,7 @@ use crate::wrap::xlib::open_display;
 use crate::wrap::xlib::query_tree;
 use crate::wrap::xlib::raise_window;
 use crate::wrap::xlib::select_input;
+use crate::wrap::xlib::set_class_hints;
 use crate::wrap::xlib::set_close_down_mode;
 use crate::wrap::xlib::set_error_handler;
 use crate::wrap::xlib::set_input_focus;
@@ -100,7 +109,6 @@ macro_rules! log {
 /// Initially sets ApplicationContainer variables
 fn setup() -> ApplicationContainer {
     log!("|===== setup =====");
-
     // Create some static variables
     // cause app.env.ws.vars.display holds static reference we should supply it with it during init
     let display = open_display(None).expect("Failed to open display");
@@ -121,7 +129,6 @@ fn setup() -> ApplicationContainer {
                 status_bar_builder: Vec::new(),
             },
             window_system: WindowSystemContainer {
-                status_bar: StatusBarContainer {},
                 display,
                 root_win: 0,
                 wm_check_win: 0,
@@ -398,7 +405,7 @@ fn setup() -> ApplicationContainer {
 
     // Init screens
     for screen in xinerama_query_screens(app.environment.window_system.display)
-        .expect("Running without xinerama is not supported")
+        .expect("Running without xinerama is not supported (what da hail???)")
     {
         app.environment.window_system.screens.push(Screen {
             number: screen.screen_number as i64,
@@ -420,6 +427,48 @@ fn setup() -> ApplicationContainer {
                 wv
             },
             current_workspace: 0,
+            status_bar: StatusBarContainer {
+                height: 25,
+
+                win: {
+                    let dd =
+                        default_depth(app.environment.window_system.display, screen.screen_number);
+                    let dv = unsafe {
+                        &mut *default_visual(
+                            app.environment.window_system.display,
+                            screen.screen_number,
+                        )
+                    };
+                    let mut wa = unsafe {
+                        let mut wa: XSetWindowAttributes =
+                            std::mem::MaybeUninit::zeroed().assume_init();
+                        wa.override_redirect = 1;
+                        wa.background_pixmap = ParentRelative as u64;
+                        wa
+                    };
+                    let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+                    let mut ch = XClassHint{ res_name: name.as_ptr() as *mut i8, res_class: name.as_ptr() as *mut i8 };
+                    eprintln!("created hints");
+                    let win = create_window(
+                        app.environment.window_system.display,
+                        app.environment.window_system.root_win,
+                        screen.x_org as i32,
+                        screen.y_org as i32,
+                        screen.width as u32,
+                        25,
+                        0,
+                        dd,
+                        CopyFromParent as u32,
+                        dv,
+                        CWOverrideRedirect | CWBackPixmap | CWEventMask,
+                        &mut wa,
+                    );
+                    map_window(app.environment.window_system.display, win);
+                    raise_window(app.environment.window_system.display, win);
+                    set_class_hints(app.environment.window_system.display, win, &mut ch);
+                    win
+                },
+            },
         })
     }
     log!("{:#?}", &app.environment.window_system.screens);
@@ -567,7 +616,10 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     c.w = wa.width as u32;
     c.h = wa.height as u32;
     c.x = wa.x;
-    c.y = wa.y;
+    c.y = wa.y
+        + app.environment.window_system.screens[app.environment.window_system.current_screen]
+            .status_bar
+            .height as i32;
     c.visible = true;
 
     // Check if window is transient
@@ -743,6 +795,9 @@ fn arrange(app: &mut ApplicationContainer) {
     let ws = &mut app.environment.window_system;
     // Go thru all screens
     for screen in &mut ws.screens {
+        // Usable screen 
+        let status_height = screen.status_bar.height;
+        let screen_height = screen.height - status_height as i64;
         // Gap width
         let gw = app.environment.config.visual_preferences.gap_width as i32;
         let bs = app.environment.config.visual_preferences.border_size as u32;
@@ -775,33 +830,36 @@ fn arrange(app: &mut ApplicationContainer) {
             if stack_size == 1 {
                 // if only one window selected, just show it
                 client.x = 0;
-                client.y = 0;
+                client.y = status_height as i32;
                 client.w = screen.width as u32;
-                client.h = screen.height as u32;
+                client.h = screen_height as u32;
             } else {
                 if (index as i64) < master_capacity {
                     // if master_capacity is not full put it here
                     log!("      |- Goes to master");
                     // some math...
                     let win_height =
-                        (screen.height - gw as i64 - master_capacity * gw as i64) / master_capacity;
+                        (screen_height - gw as i64 - master_capacity * gw as i64) / master_capacity;
                     // Add gap offset to the left
                     client.x = 0 + gw;
                     // Top gap + clients with their gaps offset
-                    client.y = gw + (win_height as i32 + gw) * index as i32;
+                    client.y = status_height as i32
+                        + gw
+                        + (win_height as i32 + gw) * index as i32;
                     client.w = master_width - 2 * bs;
                     client.h = win_height as u32 - 2 * bs
                 } else {
                     // otherwise put it in secondary stack
                     log!("      |- Goes to stack");
                     // a bit more of math...
-                    let win_height = (screen.height
+                    let win_height = (screen_height
                         - gw as i64
                         - (stack_size as i64 - master_capacity) * gw as i64)
                         / (stack_size as i64 - master_capacity);
                     client.x = master_width as i32 + (gw * 2) as i32;
-                    client.y =
-                        gw + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
+                    client.y = status_height as i32
+                        + gw
+                        + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
                     client.w = stack_width as u32 - 2 * bs;
                     client.h = win_height as u32 - 2 * bs;
                 }
@@ -1001,7 +1059,7 @@ fn get_atom_prop(app: &mut ApplicationContainer, win: u64, prop: Atom) -> Atom {
             win,
             prop,
             0,
-            size_of::<Atom> as i64,
+            size_of::<Atom>() as i64,
             0,
             XA_ATOM,
             &mut dummy_atom as *mut u64,
@@ -1078,7 +1136,7 @@ fn update_trackers(app: &mut ApplicationContainer, win: u64) {
     };
 }
 
-fn spawn(app: &mut ApplicationContainer, cmd: &String) {
+fn spawn(/*app: &mut ApplicationContainer,*/ cmd: &String) {
     unsafe {
         match nix::unistd::fork() {
             Ok(nix::unistd::ForkResult::Parent { child: _ }) => {
@@ -1086,12 +1144,12 @@ fn spawn(app: &mut ApplicationContainer, cmd: &String) {
             }
             Ok(nix::unistd::ForkResult::Child) => {
                 log!("CHILD SPAWNED");
-                if app.environment.window_system.display as *mut x11::xlib::Display as usize != 0 {
+                /* if app.environment.window_system.display as *mut x11::xlib::Display as usize != 0 {
                     let _ = nix::unistd::close(x11::xlib::XConnectionNumber(
                         app.environment.window_system.display,
                     ))
                     .unwrap();
-                }
+                } */
                 let args = [
                     &std::ffi::CString::new("/usr/bin/sh").unwrap(),
                     &std::ffi::CString::new("-c").unwrap(),
@@ -1610,6 +1668,7 @@ fn run(app: &mut ApplicationContainer) {
                                 wv
                             },
                             current_workspace: 0,
+                            status_bar: StatusBarContainer { height: 0, win: 0 },
                         })
                     }
                     for (index, screen) in screens.iter().enumerate() {
@@ -1619,6 +1678,49 @@ fn run(app: &mut ApplicationContainer) {
                         app.environment.window_system.screens[index].y = screen.y_org as i64;
                         app.environment.window_system.screens[index].width = screen.width as i64;
                         app.environment.window_system.screens[index].height = screen.height as i64;
+                        app.environment.window_system.screens[index].status_bar =
+                            StatusBarContainer {
+                                height: 25,
+                                win: {
+                                    let dd = default_depth(
+                                        app.environment.window_system.display,
+                                        screen.screen_number,
+                                    );
+                                    let dv = unsafe {
+                                        &mut *default_visual(
+                                            app.environment.window_system.display,
+                                            screen.screen_number,
+                                        )
+                                    };
+                                    let mut wa = unsafe {
+                                        let mut wa: XSetWindowAttributes =
+                                            std::mem::MaybeUninit::zeroed().assume_init();
+                                        wa.override_redirect = 1;
+                                        wa.background_pixmap = ParentRelative as u64;
+                                        wa
+                                    };
+                                    let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+                                    let mut ch = XClassHint{ res_name: name.as_ptr() as *mut i8, res_class: name.as_ptr() as *mut i8 };
+                                    let win = create_window(
+                                        app.environment.window_system.display,
+                                        app.environment.window_system.root_win,
+                                        screen.x_org as i32,
+                                        screen.y_org as i32,
+                                        screen.width as u32,
+                                        25,
+                                        0,
+                                        dd,
+                                        CopyFromParent as u32,
+                                        dv,
+                                        CWOverrideRedirect | CWBackPixmap | CWEventMask,
+                                        &mut wa,
+                                    );
+                                    map_window(app.environment.window_system.display, win);
+                                    raise_window(app.environment.window_system.display, win);
+                                    set_class_hints(app.environment.window_system.display, win, &mut ch);
+                                    win
+                                },
+                            }
                     }
                     for _ in screens_amount..n {
                         let lsw = app
@@ -1714,18 +1816,8 @@ fn main() {
         let _ = nix::sys::signal::sigaction(nix::sys::signal::Signal::SIGCHLD, &sa);
     }
 
-    // Run autostart
-    // Command::new("/usr/bin/sh")
-    //     .arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh"))
-    //     .status()
-    //     .unwrap();
-
-    // Init `app` container
-    // App container consists of all data needed for WM to function
-    let mut app: ApplicationContainer = setup();
-
     spawn(
-        &mut app,
+        /*&mut app,*/
         &format!(
             "{} {}/{}",
             "/usr/bin/sh",
@@ -1733,6 +1825,10 @@ fn main() {
             ".rtde/autostart.sh"
         ),
     );
+
+    // Init `app` container
+    // App container consists of all data needed for WM to function
+    let mut app: ApplicationContainer = setup();
 
     // Scan for existing windows
     scan(&mut app);
