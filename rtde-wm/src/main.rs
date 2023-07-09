@@ -74,6 +74,7 @@ use crate::wrap::xlib::create_simple_window;
 use crate::wrap::xlib::create_window;
 use crate::wrap::xlib::default_depth;
 use crate::wrap::xlib::default_root_window;
+use crate::wrap::xlib::default_screen;
 use crate::wrap::xlib::default_visual;
 use crate::wrap::xlib::delete_property;
 use crate::wrap::xlib::get_transient_for_hint;
@@ -431,21 +432,17 @@ fn setup() -> ApplicationContainer {
                 height: 25,
 
                 win: {
+                    let s = default_screen(app.environment.window_system.display);
                     let dd =
-                        default_depth(app.environment.window_system.display, screen.screen_number);
-                    let dv = unsafe {
-                        &mut *default_visual(
-                            app.environment.window_system.display,
-                            screen.screen_number,
-                        )
-                    };
-                    let mut wa = unsafe {
-                        let mut wa: XSetWindowAttributes =
-                            std::mem::MaybeUninit::zeroed().assume_init();
-                        wa.override_redirect = 1;
-                        wa.background_pixmap = ParentRelative as u64;
-                        wa
-                    };
+                        default_depth(app.environment.window_system.display, s);
+                    let mut dv = default_visual(
+                        app.environment.window_system.display,
+                        s,
+                    );
+                    let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
+                    wa.override_redirect = 1;
+                    wa.background_pixmap = ParentRelative as u64;
+
                     let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
                     let mut ch = XClassHint{ res_name: name.as_ptr() as *mut i8, res_class: name.as_ptr() as *mut i8 };
                     eprintln!("created hints");
@@ -459,7 +456,7 @@ fn setup() -> ApplicationContainer {
                         0,
                         dd,
                         CopyFromParent as u32,
-                        dv,
+                        &mut dv,
                         CWOverrideRedirect | CWBackPixmap | CWEventMask,
                         &mut wa,
                     );
@@ -795,7 +792,7 @@ fn arrange(app: &mut ApplicationContainer) {
     let ws = &mut app.environment.window_system;
     // Go thru all screens
     for screen in &mut ws.screens {
-        // Usable screen 
+        // Usable screen
         let status_height = screen.status_bar.height;
         let screen_height = screen.height - status_height as i64;
         // Gap width
@@ -843,9 +840,7 @@ fn arrange(app: &mut ApplicationContainer) {
                     // Add gap offset to the left
                     client.x = 0 + gw;
                     // Top gap + clients with their gaps offset
-                    client.y = status_height as i32
-                        + gw
-                        + (win_height as i32 + gw) * index as i32;
+                    client.y = status_height as i32 + gw + (win_height as i32 + gw) * index as i32;
                     client.w = master_width - 2 * bs;
                     client.h = win_height as u32 - 2 * bs
                 } else {
@@ -1241,7 +1236,7 @@ fn run(app: &mut ApplicationContainer) {
                             }
                             ActionResult::Spawn(cmd) => {
                                 log!("   |- Got `Spawn` Action");
-                                spawn(app, cmd);
+                                spawn(/*app,*/ cmd);
                                 // // Run sh with specified command
                                 // let mut handle = Command::new("/usr/bin/sh")
                                 //     .arg("-c")
@@ -1686,12 +1681,11 @@ fn run(app: &mut ApplicationContainer) {
                                         app.environment.window_system.display,
                                         screen.screen_number,
                                     );
-                                    let dv = unsafe {
-                                        &mut *default_visual(
+                                    let mut dv = 
+                                        default_visual(
                                             app.environment.window_system.display,
                                             screen.screen_number,
-                                        )
-                                    };
+                                        );
                                     let mut wa = unsafe {
                                         let mut wa: XSetWindowAttributes =
                                             std::mem::MaybeUninit::zeroed().assume_init();
@@ -1700,7 +1694,10 @@ fn run(app: &mut ApplicationContainer) {
                                         wa
                                     };
                                     let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
-                                    let mut ch = XClassHint{ res_name: name.as_ptr() as *mut i8, res_class: name.as_ptr() as *mut i8 };
+                                    let mut ch = XClassHint {
+                                        res_name: name.as_ptr() as *mut i8,
+                                        res_class: name.as_ptr() as *mut i8,
+                                    };
                                     let win = create_window(
                                         app.environment.window_system.display,
                                         app.environment.window_system.root_win,
@@ -1711,13 +1708,17 @@ fn run(app: &mut ApplicationContainer) {
                                         0,
                                         dd,
                                         CopyFromParent as u32,
-                                        dv,
+                                        &mut dv,
                                         CWOverrideRedirect | CWBackPixmap | CWEventMask,
                                         &mut wa,
                                     );
                                     map_window(app.environment.window_system.display, win);
                                     raise_window(app.environment.window_system.display, win);
-                                    set_class_hints(app.environment.window_system.display, win, &mut ch);
+                                    set_class_hints(
+                                        app.environment.window_system.display,
+                                        win,
+                                        &mut ch,
+                                    );
                                     win
                                 },
                             }
@@ -1816,15 +1817,12 @@ fn main() {
         let _ = nix::sys::signal::sigaction(nix::sys::signal::Signal::SIGCHLD, &sa);
     }
 
-    spawn(
-        /*&mut app,*/
-        &format!(
-            "{} {}/{}",
-            "/usr/bin/sh",
-            std::env!("HOME"),
-            ".rtde/autostart.sh"
-        ),
-    );
+    spawn(/*&mut app,*/ &format!(
+        "{} {}/{}",
+        "/usr/bin/sh",
+        std::env!("HOME"),
+        ".rtde/autostart.sh"
+    ));
 
     // Init `app` container
     // App container consists of all data needed for WM to function
