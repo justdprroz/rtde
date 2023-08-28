@@ -69,7 +69,7 @@ pub enum ActionResult {
 }
 
 /// Enum for choosing screen. Currently supports Next and Previous screen
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ScreenSwitching {
     Next,
     Previous,

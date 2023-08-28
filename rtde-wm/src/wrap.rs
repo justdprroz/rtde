@@ -5,7 +5,7 @@ pub mod xlib {
         _d: *mut x11::xlib::Display,
         _e: *mut x11::xlib::XErrorEvent,
     ) -> i32 {
-        return 0;
+        0
     }
 
     pub fn set_error_handler() {
@@ -28,7 +28,7 @@ pub mod xlib {
                     let name_ptr = dn.as_ptr() as *const i8;
                     x11::xlib::XOpenDisplay(name_ptr)
                 }
-                None => x11::xlib::XOpenDisplay(0x0 as *const i8),
+                None => x11::xlib::XOpenDisplay(std::ptr::null::<i8>()),
             };
             return result.as_mut();
         }
@@ -51,9 +51,7 @@ pub mod xlib {
     }
 
     pub fn default_screen(display: &mut x11::xlib::Display) -> i32 {
-        unsafe {
-            x11::xlib::XDefaultScreen(display as *mut x11::xlib::Display)
-        }
+        unsafe { x11::xlib::XDefaultScreen(display as *mut x11::xlib::Display) }
     }
 
     pub fn change_window_attributes(
@@ -177,7 +175,7 @@ pub mod xlib {
             let mut root_return: u64 = 0;
             let mut parent_return: u64 = 0;
             let mut nchildren_return: u32 = 0;
-            let mut children_return: *mut u64 = 0 as *mut u64;
+            let mut children_return: *mut u64 = std::ptr::null_mut::<u64>();
 
             x11::xlib::XQueryTree(
                 display as *mut x11::xlib::Display,
@@ -191,10 +189,7 @@ pub mod xlib {
             (
                 0,
                 0,
-                std::slice::from_raw_parts_mut(children_return, nchildren_return as usize)
-                    .iter()
-                    .map(|win| *win)
-                    .collect(),
+                std::slice::from_raw_parts_mut(children_return, nchildren_return as usize).to_vec()
             )
         }
     }
@@ -241,7 +236,7 @@ pub mod xlib {
         w: u64,
     ) -> Option<Vec<x11::xlib::Atom>> {
         unsafe {
-            let mut protocols_return: *mut x11::xlib::Atom = 0 as *mut u64;
+            let mut protocols_return: *mut x11::xlib::Atom = std::ptr::null_mut::<u64>();
             let mut count_return: i32 = 0;
             if x11::xlib::XGetWMProtocols(
                 display as *mut x11::xlib::Display,
@@ -263,7 +258,7 @@ pub mod xlib {
         oie: bool,
     ) -> x11::xlib::Atom {
         unsafe {
-            let name_ptr = std::ffi::CString::new(atom_name.clone()).unwrap();
+            let name_ptr = std::ffi::CString::new(atom_name).unwrap();
             x11::xlib::XInternAtom(
                 display as *mut x11::xlib::Display,
                 name_ptr.as_ptr() as *const i8,
@@ -337,8 +332,7 @@ pub mod xlib {
                 display as *mut x11::xlib::Display,
                 &mut ev as *mut x11::xlib::XEvent,
             );
-            let mut event = Event::default();
-            event.type_ = ev.type_;
+            let mut event: Event = Event { type_: ev.type_, ..Default::default()};
             match ev.type_ {
                 x11::xlib::KeyPress | x11::xlib::KeyRelease => {
                     event.key = Some(ev.key);
@@ -430,7 +424,7 @@ pub mod xlib {
     }
 
     #[allow(dead_code)]
-    pub fn kill_client(display: &mut x11::xlib::Display, w: u64) {
+    pub fn x_kill_client(display: &mut x11::xlib::Display, w: u64) {
         unsafe {
             x11::xlib::XKillClient(display as *mut x11::xlib::Display, w);
         }
@@ -493,7 +487,7 @@ pub mod xlib {
                 format,
                 mode,
                 data,
-                nelements as i32,
+                nelements,
             );
         }
     }
@@ -505,12 +499,12 @@ pub mod xlib {
     ) -> Option<String> {
         unsafe {
             let mut tr: x11::xlib::XTextProperty = x11::xlib::XTextProperty {
-                value: 0x0 as *mut u8,
+                value: std::ptr::null_mut::<u8>(),
                 encoding: 0,
                 format: 0,
                 nitems: 0,
             };
-            let mut strings_return = 0 as *mut *mut i8;
+            let mut strings_return = std::ptr::null_mut::<*mut i8>();
             let mut amount = 0;
 
             if x11::xlib::XGetTextProperty(
@@ -540,7 +534,7 @@ pub mod xlib {
                 &mut amount as *mut i32,
             ) >= x11::xlib::Success as i32
                 && amount > 0
-                && *strings_return != 0x0 as *mut i8
+                && !(*strings_return).is_null()
             {
                 name = Some(
                     match std::ffi::CStr::from_ptr(*strings_return).to_string_lossy() {
@@ -564,17 +558,12 @@ pub mod xinerama {
     ) -> Option<Vec<x11::xinerama::XineramaScreenInfo>> {
         unsafe {
             let mut screens_amount: i32 = 0;
-            match x11::xinerama::XineramaQueryScreens(
+            x11::xinerama::XineramaQueryScreens(
                 display as *mut x11::xlib::Display,
                 &mut screens_amount as *mut i32,
             )
             .as_mut()
-            {
-                Some(xqs) => {
-                    Some(std::slice::from_raw_parts_mut(xqs, screens_amount as usize).to_vec())
-                }
-                None => None,
-            }
+            .map(|xqs| std::slice::from_raw_parts_mut(xqs, screens_amount as usize).to_vec())
         }
     }
 }
