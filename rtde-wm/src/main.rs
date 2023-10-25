@@ -13,12 +13,17 @@ use std::ptr::null_mut;
 use std::vec;
 
 use grab::grab_key;
+use x11::xlib::XA_CARDINAL;
+use x11::xlib::XA_INTEGER;
 
+// mod config;
 mod structs;
 mod wrap;
 
-fn argb_to_int(a: u32, r: u8, g: u8, b: u8) -> u64 {
-    (a as u64) << 24 | (r as u64) << 16 | (g as u64) << 8 | (b as u64)
+use crate::structs::Color;
+
+fn argb_to_int(c: Color) -> u64 {
+    (c.alpha as u64) << 24 | (c.red as u64) << 16 | (c.green as u64) << 8 | (c.blue as u64)
 }
 
 use libc::LC_CTYPE;
@@ -45,7 +50,7 @@ use x11::xlib::EnterWindowMask;
 use x11::xlib::FocusChangeMask;
 use x11::xlib::IsViewable;
 use x11::xlib::LeaveWindowMask;
-use x11::xlib::Mod1Mask as ModKey;
+use x11::xlib::Mod4Mask as ModKey;
 use x11::xlib::NoEventMask;
 use x11::xlib::PMaxSize;
 use x11::xlib::PMinSize;
@@ -118,15 +123,24 @@ fn setup() -> ApplicationContainer {
     let mut app = ApplicationContainer {
         environment: EnvironmentContainer {
             config: ConfigurationContainer {
-                visual_preferences: VisualPreferences {
+                visuals: Visuals {
                     gap_width: 4,
                     border_size: 2,
-                    normal_border_color: argb_to_int(255, 64, 64, 64),
-                    active_border_color: argb_to_int(255, 64, 192, 64),
+                    normal_border_color: Color {
+                        alpha: 255,
+                        red: 64,
+                        green: 64,
+                        blue: 64,
+                    },
+                    active_border_color: Color {
+                        alpha: 255,
+                        red: 64,
+                        green: 192,
+                        blue: 64,
+                    },
                 },
                 key_actions: Vec::new(),
-                layout_rules: Vec::new(),
-                status_bar_builder: Vec::new(),
+                bar: BarVariant::Bar(Bar { height: 42 }),
             },
             window_system: WindowSystemContainer {
                 display,
@@ -137,7 +151,6 @@ fn setup() -> ApplicationContainer {
                 current_screen: 0,
                 current_workspace: 0,
                 current_client: None,
-
                 atoms: Atoms {
                     wm_protocols: 0,
                     wm_delete: 0,
@@ -152,6 +165,8 @@ fn setup() -> ApplicationContainer {
                     net_wm_window_type: 0,
                     net_wm_window_type_dialog: 0,
                     net_client_list: 0,
+                    net_number_of_desktops: 0,
+                    net_current_desktop: 0,
                 },
             },
         },
@@ -351,6 +366,8 @@ fn setup() -> ApplicationContainer {
             false,
         ),
         net_client_list: intern_atom(dpy, "_NET_CLIENT_LIST".to_string(), false),
+        net_number_of_desktops: intern_atom(dpy, "_NET_NUMBER_OF_DESKTOPS".to_string(), false),
+        net_current_desktop: intern_atom(dpy, "_NET_CURRENT_DESKTOP".to_string(), false),
     };
 
     log!("|- Initialized `Variables`");
@@ -402,6 +419,17 @@ fn setup() -> ApplicationContainer {
         &mut wmchckwin as *mut u64 as *mut u8,
         1,
     );
+    let mut numbers: u64 = 10;
+    change_property(
+        dpy,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_number_of_desktops,
+        XA_CARDINAL,
+        32,
+        PropModeReplace,
+        &mut numbers as *mut u64 as *mut u8,
+        1,
+    );
 
     // Init screens
     for screen in xinerama_query_screens(app.environment.window_system.display)
@@ -427,42 +455,45 @@ fn setup() -> ApplicationContainer {
                 wv
             },
             current_workspace: 0,
-            status_bar: StatusBarContainer {
-                height: 25,
+            status_bar: match &app.environment.config.bar {
+                BarVariant::Bar(bar) => Some(StatusBarContainer {
+                    height: bar.height,
+                    win: {
+                        let s = default_screen(app.environment.window_system.display);
+                        let dd = default_depth(app.environment.window_system.display, s);
+                        let mut dv = default_visual(app.environment.window_system.display, s);
+                        let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
+                        wa.override_redirect = 1;
+                        wa.background_pixmap = ParentRelative as u64;
 
-                win: {
-                    let s = default_screen(app.environment.window_system.display);
-                    let dd = default_depth(app.environment.window_system.display, s);
-                    let mut dv = default_visual(app.environment.window_system.display, s);
-                    let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
-                    wa.override_redirect = 1;
-                    wa.background_pixmap = ParentRelative as u64;
-
-                    let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
-                    let mut ch = XClassHint {
-                        res_name: name.as_ptr() as *mut i8,
-                        res_class: name.as_ptr() as *mut i8,
-                    };
-                    eprintln!("created hints");
-                    let win = create_window(
-                        app.environment.window_system.display,
-                        app.environment.window_system.root_win,
-                        screen.x_org as i32,
-                        screen.y_org as i32,
-                        screen.width as u32,
-                        25,
-                        0,
-                        dd,
-                        CopyFromParent as u32,
-                        &mut dv,
-                        CWOverrideRedirect | CWBackPixmap | CWEventMask,
-                        &mut wa,
-                    );
-                    map_window(app.environment.window_system.display, win);
-                    raise_window(app.environment.window_system.display, win);
-                    set_class_hints(app.environment.window_system.display, win, &mut ch);
-                    win
-                },
+                        let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+                        let mut ch = XClassHint {
+                            res_name: name.as_ptr() as *mut i8,
+                            res_class: name.as_ptr() as *mut i8,
+                        };
+                        eprintln!("created hints");
+                        let win = create_window(
+                            app.environment.window_system.display,
+                            app.environment.window_system.root_win,
+                            screen.x_org as i32,
+                            screen.y_org as i32,
+                            screen.width as u32,
+                            25,
+                            0,
+                            dd,
+                            CopyFromParent as u32,
+                            &mut dv,
+                            CWOverrideRedirect | CWBackPixmap | CWEventMask,
+                            &mut wa,
+                        );
+                        map_window(app.environment.window_system.display, win);
+                        raise_window(app.environment.window_system.display, win);
+                        set_class_hints(app.environment.window_system.display, win, &mut ch);
+                        win
+                    },
+                }),
+                BarVariant::None => None,
+                BarVariant::External => None,
             },
         })
     }
@@ -485,6 +516,8 @@ fn setup() -> ApplicationContainer {
         ws.atoms.net_wm_window_type_dialog,
         ws.atoms.net_client_list,
         ws.atoms.net_wm_state,
+        ws.atoms.net_number_of_desktops,
+        ws.atoms.net_current_desktop,
     ];
 
     change_property(
@@ -600,6 +633,19 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         }
     };
 
+    let win_type = intern_atom(
+        app.environment.window_system.display,
+        "_NET_WM_WINDOW_TYPE".to_string(),
+        false,
+    );
+    let win_dock = intern_atom(
+        app.environment.window_system.display,
+        "_NET_WM_WINDOW_TYPE_DOCK".to_string(),
+        false,
+    );
+
+    let dock: bool = get_atom_prop(app, win, win_type) == win_dock;
+
     // Create client
     let mut c: Client = Client::default();
     let mut trans = 0;
@@ -610,9 +656,12 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     c.h = wa.height as u32;
     c.x = wa.x;
     c.y = wa.y
-        + app.environment.window_system.screens[app.environment.window_system.current_screen]
+        + match &app.environment.window_system.screens[app.environment.window_system.current_screen]
             .status_bar
-            .height as i32;
+        {
+            Some(bar) => bar.height as i32,
+            None => 0,
+        };
     c.visible = true;
 
     // Check if window is transient
@@ -709,74 +758,70 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         win,
         EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
     );
-    // Set previous client border to normal
-    if let Some(cw) = get_current_client_id(app) {
+    if !dock {
+        // Set previous client border to normal
+        if let Some(cw) = get_current_client_id(app) {
+            set_window_border(
+                app.environment.window_system.display,
+                cw,
+                argb_to_int(app.environment.config.visuals.normal_border_color),
+            );
+        }
+        // Get current workspace
+        let w = &mut app.environment.window_system.screens
+            [app.environment.window_system.current_screen]
+            .workspaces[app.environment.window_system.current_workspace];
+        // Update client tracker
+        w.current_client = Some(w.clients.len());
+        app.environment.window_system.current_client = w.current_client;
+        // Push to stack
+        w.clients.push(c);
+        // Add window to wm _NET_CLIENT_LIST
+        change_property(
+            app.environment.window_system.display,
+            app.environment.window_system.root_win,
+            app.environment.window_system.atoms.net_client_list,
+            XA_WINDOW,
+            32,
+            PropModeAppend,
+            &win as *const u64 as *mut u8,
+            1,
+        );
+        // set border size
+        let mut wc = x11::xlib::XWindowChanges {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            border_width: app.environment.config.visuals.border_size as i32,
+            sibling: 0,
+            stack_mode: 0,
+        };
+        configure_window(
+            app.environment.window_system.display,
+            win,
+            CWBorderWidth as u32,
+            &mut wc,
+        );
         set_window_border(
             app.environment.window_system.display,
-            cw,
-            app.environment
-                .config
-                .visual_preferences
-                .normal_border_color,
+            win,
+            argb_to_int(app.environment.config.visuals.active_border_color),
         );
+        // Fetch and set client name
+        update_client_name(app, win);
+        // Raise window above other`
+        raise_window(app.environment.window_system.display, win);
+        // Focus on created window
+        set_input_focus(
+            app.environment.window_system.display,
+            win,
+            RevertToPointerRoot,
+            CurrentTime,
+        );
+        // Arrange current workspace
+        arrange(app);
     }
-    // Get current workspace
-    let w = &mut app.environment.window_system.screens
-        [app.environment.window_system.current_screen]
-        .workspaces[app.environment.window_system.current_workspace];
-    // Update client tracker
-    w.current_client = Some(w.clients.len());
-    app.environment.window_system.current_client = w.current_client;
-    // Push to stack
-    w.clients.push(c);
-    // Add window to wm _NET_CLIENT_LIST
-    change_property(
-        app.environment.window_system.display,
-        app.environment.window_system.root_win,
-        app.environment.window_system.atoms.net_client_list,
-        XA_WINDOW,
-        32,
-        PropModeAppend,
-        &win as *const u64 as *mut u8,
-        1,
-    );
-    // set border size
-    let mut wc = x11::xlib::XWindowChanges {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-        border_width: app.environment.config.visual_preferences.border_size as i32,
-        sibling: 0,
-        stack_mode: 0,
-    };
-    configure_window(
-        app.environment.window_system.display,
-        win,
-        CWBorderWidth as u32,
-        &mut wc,
-    );
-    set_window_border(
-        app.environment.window_system.display,
-        win,
-        app.environment
-            .config
-            .visual_preferences
-            .active_border_color,
-    );
-    // Fetch and set client name
-    update_client_name(app, win);
-    // Raise window above other`
-    raise_window(app.environment.window_system.display, win);
-    // Focus on created window
-    set_input_focus(
-        app.environment.window_system.display,
-        win,
-        RevertToPointerRoot,
-        CurrentTime,
-    );
-    // Arrange current workspace
-    arrange(app);
     // Finish mapping
     map_window(app.environment.window_system.display, win);
     log!("   |- Mapped window");
@@ -789,11 +834,14 @@ fn arrange(app: &mut ApplicationContainer) {
     // Go thru all screens
     for screen in &mut ws.screens {
         // Usable screen
-        let status_height = screen.status_bar.height;
+        let status_height = match &screen.status_bar {
+            Some(bar) => bar.height,
+            None => 0,
+        };
         let screen_height = screen.height - status_height as i64;
         // Gap width
-        let gw = app.environment.config.visual_preferences.gap_width as i32;
-        let bs = app.environment.config.visual_preferences.border_size as u32;
+        let gw = app.environment.config.visuals.gap_width as i32;
+        let bs = app.environment.config.visuals.border_size as u32;
         // Get amount of visible not floating clients to arrange
         let stack_size = screen.workspaces[screen.current_workspace]
             .clients
@@ -872,7 +920,7 @@ fn arrange(app: &mut ApplicationContainer) {
                     ws.display,
                     client.window_id,
                     if stack_size > 1 {
-                        app.environment.config.visual_preferences.border_size as u32
+                        app.environment.config.visuals.border_size as u32
                     } else {
                         0
                     },
@@ -1090,7 +1138,9 @@ fn update_active_window(app: &mut ApplicationContainer) {
 
 fn get_current_client_id(app: &mut ApplicationContainer) -> Option<u64> {
     let ws = &app.environment.window_system;
-    ws.current_client.map(|index| ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id)
+    ws.current_client.map(|index| {
+        ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id
+    })
 }
 
 fn update_trackers(app: &mut ApplicationContainer, win: u64) {
@@ -1195,10 +1245,7 @@ fn move_to_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
         set_window_border(
             app.environment.window_system.display,
             cc.window_id,
-            app.environment
-                .config
-                .visual_preferences
-                .normal_border_color,
+            argb_to_int(app.environment.config.visuals.normal_border_color),
         );
         // Update client tracker on current screen
         shift_current_client(app, None, None);
@@ -1228,10 +1275,7 @@ fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
         set_window_border(
             app.environment.window_system.display,
             cw,
-            app.environment
-                .config
-                .visual_preferences
-                .normal_border_color,
+            argb_to_int(app.environment.config.visuals.normal_border_color),
         );
     }
     // Change trackers
@@ -1261,10 +1305,7 @@ fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
         set_window_border(
             app.environment.window_system.display,
             cw,
-            app.environment
-                .config
-                .visual_preferences
-                .active_border_color,
+            argb_to_int(app.environment.config.visuals.active_border_color),
         );
     }
 }
@@ -1284,10 +1325,7 @@ fn move_to_workspace(app: &mut ApplicationContainer, n: u64) {
             set_window_border(
                 app.environment.window_system.display,
                 cc.window_id,
-                app.environment
-                    .config
-                    .visual_preferences
-                    .normal_border_color,
+                argb_to_int(app.environment.config.visuals.normal_border_color),
             );
             // Update current workspace layout
             arrange(app);
@@ -1323,16 +1361,23 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64) {
             set_window_border(
                 app.environment.window_system.display,
                 cw,
-                app.environment
-                    .config
-                    .visual_preferences
-                    .normal_border_color,
+                argb_to_int(app.environment.config.visuals.normal_border_color),
             );
         }
         // Update workspace index
         app.environment.window_system.current_workspace = n as usize;
         app.environment.window_system.screens[app.environment.window_system.current_screen]
             .current_workspace = n as usize;
+        change_property(
+            app.environment.window_system.display,
+            app.environment.window_system.root_win,
+            app.environment.window_system.atoms.net_current_desktop,
+            XA_CARDINAL,
+            32,
+            PropModeReplace,
+            &n as *const u64 as *mut u64 as *mut u8,
+            1,
+        );
         // Update current client
         app.environment.window_system.current_client = app.environment.window_system.screens
             [app.environment.window_system.current_screen]
@@ -1342,10 +1387,7 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64) {
             set_window_border(
                 app.environment.window_system.display,
                 cw,
-                app.environment
-                    .config
-                    .visual_preferences
-                    .active_border_color,
+                argb_to_int(app.environment.config.visuals.active_border_color),
             );
         }
         // Show current client
@@ -1466,11 +1508,7 @@ fn map_request(app: &mut ApplicationContainer, ev: Event) {
 
 fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
     let ew: u64 = ev.crossing.unwrap().window;
-    log!(
-        "|- Crossed Window `{}` ({})",
-        get_client_name(app, ew),
-        ew
-    );
+    log!("|- Crossed Window `{}` ({})", get_client_name(app, ew), ew);
     if ew != app.environment.window_system.root_win {
         log!("   |- Setting focus to window");
         // Focus on crossed window
@@ -1478,19 +1516,13 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
             set_window_border(
                 app.environment.window_system.display,
                 cw,
-                app.environment
-                    .config
-                    .visual_preferences
-                    .normal_border_color,
+                argb_to_int(app.environment.config.visuals.normal_border_color),
             );
         }
         set_window_border(
             app.environment.window_system.display,
             ew,
-            app.environment
-                .config
-                .visual_preferences
-                .active_border_color,
+            argb_to_int(app.environment.config.visuals.active_border_color),
         );
         update_trackers(app, ew);
         update_active_window(app);
@@ -1504,7 +1536,8 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
         let ws = &mut app.environment.window_system;
 
         if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
-            .clients.is_empty()
+            .clients
+            .is_empty()
         {
             set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
             delete_property(ws.display, ws.root_win, ws.atoms.net_active_window);
@@ -1514,19 +1547,13 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
 
 fn destroy_notify(app: &mut ApplicationContainer, ev: Event) {
     let ew: u64 = ev.destroy_window.unwrap().window;
-    log!(
-        "|- `{}` destroyed",
-        get_client_name(app, ew)
-    );
+    log!("|- `{}` destroyed", get_client_name(app, ew));
     unmanage_window(app, ew);
 }
 
 fn unmap_notify(app: &mut ApplicationContainer, ev: Event) {
     let ew: u64 = ev.unmap.unwrap().window;
-    log!(
-        "|- `{}` unmapped",
-        get_client_name(app, ew)
-    );
+    log!("|- `{}` unmapped", get_client_name(app, ew));
     unmanage_window(app, ew);
 }
 
@@ -1602,7 +1629,11 @@ fn configure_notify(app: &mut ApplicationContainer, ev: Event) {
                     wv
                 },
                 current_workspace: 0,
-                status_bar: StatusBarContainer { height: 0, win: 0 },
+                status_bar: match app.environment.config.bar {
+                    BarVariant::Bar(_) => Some(StatusBarContainer { height: 0, win: 0 }),
+                    BarVariant::None => None,
+                    BarVariant::External => None,
+                },
             })
         }
         for (index, screen) in screens.iter().enumerate() {
@@ -1611,45 +1642,54 @@ fn configure_notify(app: &mut ApplicationContainer, ev: Event) {
             app.environment.window_system.screens[index].y = screen.y_org as i64;
             app.environment.window_system.screens[index].width = screen.width as i64;
             app.environment.window_system.screens[index].height = screen.height as i64;
-            app.environment.window_system.screens[index].status_bar = StatusBarContainer {
-                height: 25,
-                win: {
-                    let dd =
-                        default_depth(app.environment.window_system.display, screen.screen_number);
-                    let mut dv =
-                        default_visual(app.environment.window_system.display, screen.screen_number);
-                    let mut wa = unsafe {
-                        let mut wa: XSetWindowAttributes =
-                            std::mem::MaybeUninit::zeroed().assume_init();
-                        wa.override_redirect = 1;
-                        wa.background_pixmap = ParentRelative as u64;
-                        wa
-                    };
-                    let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
-                    let mut ch = XClassHint {
-                        res_name: name.as_ptr() as *mut i8,
-                        res_class: name.as_ptr() as *mut i8,
-                    };
-                    let win = create_window(
-                        app.environment.window_system.display,
-                        app.environment.window_system.root_win,
-                        screen.x_org as i32,
-                        screen.y_org as i32,
-                        screen.width as u32,
-                        25,
-                        0,
-                        dd,
-                        CopyFromParent as u32,
-                        &mut dv,
-                        CWOverrideRedirect | CWBackPixmap | CWEventMask,
-                        &mut wa,
-                    );
-                    map_window(app.environment.window_system.display, win);
-                    raise_window(app.environment.window_system.display, win);
-                    set_class_hints(app.environment.window_system.display, win, &mut ch);
-                    win
-                },
-            }
+            app.environment.window_system.screens[index].status_bar =
+                match &app.environment.config.bar {
+                    BarVariant::Bar(bar) => Some(StatusBarContainer {
+                        height: bar.height as u64,
+                        win: {
+                            let dd = default_depth(
+                                app.environment.window_system.display,
+                                screen.screen_number,
+                            );
+                            let mut dv = default_visual(
+                                app.environment.window_system.display,
+                                screen.screen_number,
+                            );
+                            let mut wa = unsafe {
+                                let mut wa: XSetWindowAttributes =
+                                    std::mem::MaybeUninit::zeroed().assume_init();
+                                wa.override_redirect = 1;
+                                wa.background_pixmap = ParentRelative as u64;
+                                wa
+                            };
+                            let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+                            let mut ch = XClassHint {
+                                res_name: name.as_ptr() as *mut i8,
+                                res_class: name.as_ptr() as *mut i8,
+                            };
+                            let win = create_window(
+                                app.environment.window_system.display,
+                                app.environment.window_system.root_win,
+                                screen.x_org as i32,
+                                screen.y_org as i32,
+                                screen.width as u32,
+                                25,
+                                0,
+                                dd,
+                                CopyFromParent as u32,
+                                &mut dv,
+                                CWOverrideRedirect | CWBackPixmap | CWEventMask,
+                                &mut wa,
+                            );
+                            map_window(app.environment.window_system.display, win);
+                            raise_window(app.environment.window_system.display, win);
+                            set_class_hints(app.environment.window_system.display, win, &mut ch);
+                            win
+                        },
+                    }),
+                    BarVariant::None => None,
+                    BarVariant::External => None,
+                }
         }
         for _ in screens_amount..n {
             let lsw = app

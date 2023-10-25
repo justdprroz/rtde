@@ -1,4 +1,7 @@
 pub mod xlib {
+    use libc::c_void;
+    use x11::xlib::{Atom, Success, XGetWindowProperty};
+
     use crate::get_default::{xevent, xwindow_attributes};
 
     unsafe extern "C" fn handler_func(
@@ -189,7 +192,7 @@ pub mod xlib {
             (
                 0,
                 0,
-                std::slice::from_raw_parts_mut(children_return, nchildren_return as usize).to_vec()
+                std::slice::from_raw_parts_mut(children_return, nchildren_return as usize).to_vec(),
             )
         }
     }
@@ -332,7 +335,10 @@ pub mod xlib {
                 display as *mut x11::xlib::Display,
                 &mut ev as *mut x11::xlib::XEvent,
             );
-            let mut event: Event = Event { type_: ev.type_, ..Default::default()};
+            let mut event: Event = Event {
+                type_: ev.type_,
+                ..Default::default()
+            };
             match ev.type_ {
                 x11::xlib::KeyPress | x11::xlib::KeyRelease => {
                     event.key = Some(ev.key);

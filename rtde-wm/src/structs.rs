@@ -1,37 +1,44 @@
-//! Definitions of custom abstract structures for window manager
-
-/// ApplicationContainer structure used to store Api and EnvironmentContainer variables
 pub struct ApplicationContainer {
     pub environment: EnvironmentContainer,
     pub api: Api,
 }
 
-/// Stores all data needed by window manager to operate eg configuration and
-/// states
 pub struct EnvironmentContainer {
     pub config: ConfigurationContainer,
     pub window_system: WindowSystemContainer,
 }
 
-/// Contains user-definable configurations like visual preferences, shortcuts(actions), rules for
-/// layouts and finally status bar builing rules
 pub struct ConfigurationContainer {
-    pub visual_preferences: VisualPreferences,
+    pub visuals: Visuals,
     pub key_actions: Vec<KeyAction>,
-    pub layout_rules: Vec<LayoutRule>,
-    pub status_bar_builder: Vec<StatusBarBuilder>,
+    pub bar: BarVariant,
 }
 
-/// Stores settings used un UI
-pub struct VisualPreferences {
+pub enum BarVariant {
+    None,
+    External,
+    Bar(Bar),
+}
+
+pub struct Bar {
+    pub height: u64,
+}
+
+pub struct Visuals {
     pub gap_width: usize,
     pub border_size: usize,
-    pub normal_border_color: u64,
-    pub active_border_color: u64,
+    pub normal_border_color: Color,
+    pub active_border_color: Color,
 }
 
-/// Struct used for defining keboard shortcuts. Has keysym (Key Symbol), modifier (eg Ctrl, Shift
-/// etc) and result (action that will be run on successful trigger)
+#[derive(Clone, Copy)]
+pub struct Color {
+    pub alpha: u8,
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+}
+
 #[derive(Clone)]
 pub struct KeyAction {
     pub keysym: u32,
@@ -39,45 +46,27 @@ pub struct KeyAction {
     pub result: ActionResult,
 }
 
-/// Enum that defines results of shortcuts
 #[derive(Debug, Clone)]
 pub enum ActionResult {
-    /// Kills current client
     KillClient,
-    /// Spawns specified command (String)
     Spawn(String),
-    /// Moves current client to chosen screen
     MoveToScreen(ScreenSwitching),
-    /// Focuses on chosen screen
     FocusOnScreen(ScreenSwitching),
-    /// Changes width of master client
     UpdateMasterCapacity(i64),
-    /// Changes amount of windows in master
     UpdateMasterWidth(f64),
-    /// Moves current client to specified workspace on current screen
     MoveToWorkspace(u64),
-    /// Focuses on specified workspace on current screen
     FocusOnWorkspace(u64),
-    /// Cycle Stack
     CycleStack(i64),
-    /// Temporaly maximazes window (NOT YET IMPLEMENTED)
     ToggleFloat,
-    /// Dumps all states to logs
     DumpInfo,
-    /// Exits Wm
     Quit,
 }
 
-/// Enum for choosing screen. Currently supports Next and Previous screen
 #[derive(Debug, Clone, Copy)]
 pub enum ScreenSwitching {
     Next,
     Previous,
 }
-
-pub struct LayoutRule {}
-
-pub struct StatusBarBuilder {}
 
 #[derive(Debug)]
 pub struct Atoms {
@@ -94,6 +83,8 @@ pub struct Atoms {
     pub net_wm_window_type: u64,
     pub net_wm_window_type_dialog: u64,
     pub net_client_list: u64,
+    pub net_number_of_desktops: u64,
+    pub net_current_desktop: u64,
 }
 
 /// Stores all states required by WM to operate
@@ -129,28 +120,22 @@ pub struct StatusBarContainer {
     pub win: u64,
 }
 
-/// Stores info about screen
 #[derive(Debug)]
 pub struct Screen {
-    /// Index of display
     pub number: i64,
     pub x: i64,
     pub y: i64,
     pub width: i64,
     pub height: i64,
-    /// Associated workspaces
     pub workspaces: Vec<Workspace>,
-    /// Currently selected workspace
     pub current_workspace: usize,
-    pub status_bar: StatusBarContainer,
+    pub status_bar: Option<StatusBarContainer>,
 }
 
 #[derive(Debug)]
 pub struct Workspace {
     pub number: u64,
-    /// Amount of clients in master
     pub master_capacity: i64,
-    /// Width of master window (0 - 0 pixels, 1 - full width of current screen)
     pub master_width: f64,
     pub clients: Vec<Client>,
     pub current_client: Option<usize>,
