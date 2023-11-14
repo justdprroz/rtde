@@ -13,13 +13,17 @@ use std::ptr::null_mut;
 use std::vec;
 
 use grab::grab_key;
+use x11::xlib::XA_CARDINAL;
+use x11::xlib::XA_INTEGER;
 
+// mod config;
 mod structs;
 mod wrap;
 
-/// Converts ARGS value to single int
-fn argb_to_int(a: u32, r: u8, g: u8, b: u8) -> u64 {
-    (a as u64) << 24 | (r as u64) << 16 | (g as u64) << 8 | (b as u64)
+use crate::structs::Color;
+
+fn argb_to_int(c: Color) -> u64 {
+    (c.alpha as u64) << 24 | (c.red as u64) << 16 | (c.green as u64) << 8 | (c.blue as u64)
 }
 
 use libc::LC_CTYPE;
@@ -33,20 +37,24 @@ use wrap::xlib::Event;
 use x11::keysym::*;
 use x11::xlib::Atom;
 use x11::xlib::ButtonPressMask;
+use x11::xlib::CWBackPixmap;
 use x11::xlib::CWBorderWidth;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
+use x11::xlib::CWOverrideRedirect;
 use x11::xlib::ClientMessage;
+use x11::xlib::CopyFromParent;
 use x11::xlib::CurrentTime;
 use x11::xlib::DestroyAll;
 use x11::xlib::EnterWindowMask;
 use x11::xlib::FocusChangeMask;
 use x11::xlib::IsViewable;
 use x11::xlib::LeaveWindowMask;
-use x11::xlib::Mod1Mask as ModKey;
+use x11::xlib::Mod4Mask as ModKey;
 use x11::xlib::NoEventMask;
 use x11::xlib::PMaxSize;
 use x11::xlib::PMinSize;
+use x11::xlib::ParentRelative;
 use x11::xlib::PointerMotionMask;
 use x11::xlib::PropModeAppend;
 use x11::xlib::PropModeReplace;
@@ -57,6 +65,7 @@ use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::Success;
+use x11::xlib::XClassHint;
 use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_WINDOW;
@@ -66,13 +75,16 @@ use crate::wrap::xlib::change_property;
 use crate::wrap::xlib::change_window_attributes;
 use crate::wrap::xlib::configure_window;
 use crate::wrap::xlib::create_simple_window;
+use crate::wrap::xlib::create_window;
+use crate::wrap::xlib::default_depth;
 use crate::wrap::xlib::default_root_window;
+use crate::wrap::xlib::default_screen;
+use crate::wrap::xlib::default_visual;
 use crate::wrap::xlib::delete_property;
 use crate::wrap::xlib::get_transient_for_hint;
 use crate::wrap::xlib::get_window_attributes;
 use crate::wrap::xlib::grab_server;
 use crate::wrap::xlib::keysym_to_keycode;
-use crate::wrap::xlib::kill_client;
 use crate::wrap::xlib::map_window;
 use crate::wrap::xlib::move_resize_window;
 use crate::wrap::xlib::next_event;
@@ -80,9 +92,11 @@ use crate::wrap::xlib::open_display;
 use crate::wrap::xlib::query_tree;
 use crate::wrap::xlib::raise_window;
 use crate::wrap::xlib::select_input;
+use crate::wrap::xlib::set_class_hints;
 use crate::wrap::xlib::set_close_down_mode;
 use crate::wrap::xlib::set_error_handler;
 use crate::wrap::xlib::set_input_focus;
+use crate::wrap::xlib::x_kill_client;
 
 use crate::structs::*;
 use crate::wrap::xlib::set_window_border;
@@ -100,7 +114,6 @@ macro_rules! log {
 /// Initially sets ApplicationContainer variables
 fn setup() -> ApplicationContainer {
     log!("|===== setup =====");
-
     // Create some static variables
     // cause app.env.ws.vars.display holds static reference we should supply it with it during init
     let display = open_display(None).expect("Failed to open display");
@@ -110,18 +123,26 @@ fn setup() -> ApplicationContainer {
     let mut app = ApplicationContainer {
         environment: EnvironmentContainer {
             config: ConfigurationContainer {
-                visual_preferences: VisualPreferences {
+                visuals: Visuals {
                     gap_width: 4,
                     border_size: 2,
-                    normal_border_color: argb_to_int(255, 64, 64, 64),
-                    active_border_color: argb_to_int(255, 64, 192, 64),
+                    normal_border_color: Color {
+                        alpha: 255,
+                        red: 64,
+                        green: 64,
+                        blue: 64,
+                    },
+                    active_border_color: Color {
+                        alpha: 255,
+                        red: 64,
+                        green: 192,
+                        blue: 64,
+                    },
                 },
                 key_actions: Vec::new(),
-                layout_rules: Vec::new(),
-                status_bar_builder: Vec::new(),
+                bar: BarVariant::Bar(Bar { height: 42 }),
             },
             window_system: WindowSystemContainer {
-                status_bar: StatusBarContainer {},
                 display,
                 root_win: 0,
                 wm_check_win: 0,
@@ -130,7 +151,6 @@ fn setup() -> ApplicationContainer {
                 current_screen: 0,
                 current_workspace: 0,
                 current_client: None,
-
                 atoms: Atoms {
                     wm_protocols: 0,
                     wm_delete: 0,
@@ -145,6 +165,8 @@ fn setup() -> ApplicationContainer {
                     net_wm_window_type: 0,
                     net_wm_window_type_dialog: 0,
                     net_client_list: 0,
+                    net_number_of_desktops: 0,
+                    net_current_desktop: 0,
                 },
             },
         },
@@ -294,10 +316,10 @@ fn setup() -> ApplicationContainer {
 
     app.environment.config.key_actions = actions;
 
-    for (index, action) in app.environment.config.key_actions.iter().enumerate() {
+    for (_index, action) in app.environment.config.key_actions.iter().enumerate() {
         log!(
             "|- Grabbed {} action of type `{:?}`",
-            index + 1,
+            _index + 1,
             &action.result
         );
         grab_key(
@@ -321,7 +343,7 @@ fn setup() -> ApplicationContainer {
     // Init variables
     // app.env.win.var.dis was already initialized (Proof me wrong)
     app.environment.window_system.root_win =
-        default_root_window(&mut app.environment.window_system.display);
+        default_root_window(app.environment.window_system.display);
 
     let dpy = &mut app.environment.window_system.display;
 
@@ -344,6 +366,8 @@ fn setup() -> ApplicationContainer {
             false,
         ),
         net_client_list: intern_atom(dpy, "_NET_CLIENT_LIST".to_string(), false),
+        net_number_of_desktops: intern_atom(dpy, "_NET_NUMBER_OF_DESKTOPS".to_string(), false),
+        net_current_desktop: intern_atom(dpy, "_NET_CURRENT_DESKTOP".to_string(), false),
     };
 
     log!("|- Initialized `Variables`");
@@ -395,10 +419,21 @@ fn setup() -> ApplicationContainer {
         &mut wmchckwin as *mut u64 as *mut u8,
         1,
     );
+    let mut numbers: u64 = 10;
+    change_property(
+        dpy,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_number_of_desktops,
+        XA_CARDINAL,
+        32,
+        PropModeReplace,
+        &mut numbers as *mut u64 as *mut u8,
+        1,
+    );
 
     // Init screens
     for screen in xinerama_query_screens(app.environment.window_system.display)
-        .expect("Running without xinerama is not supported")
+        .expect("Running without xinerama is not supported (what da hail???)")
     {
         app.environment.window_system.screens.push(Screen {
             number: screen.screen_number as i64,
@@ -420,6 +455,46 @@ fn setup() -> ApplicationContainer {
                 wv
             },
             current_workspace: 0,
+            status_bar: match &app.environment.config.bar {
+                BarVariant::Bar(bar) => Some(StatusBarContainer {
+                    height: bar.height,
+                    win: {
+                        let s = default_screen(app.environment.window_system.display);
+                        let dd = default_depth(app.environment.window_system.display, s);
+                        let mut dv = default_visual(app.environment.window_system.display, s);
+                        let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
+                        wa.override_redirect = 1;
+                        wa.background_pixmap = ParentRelative as u64;
+
+                        let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+                        let mut ch = XClassHint {
+                            res_name: name.as_ptr() as *mut i8,
+                            res_class: name.as_ptr() as *mut i8,
+                        };
+                        eprintln!("created hints");
+                        let win = create_window(
+                            app.environment.window_system.display,
+                            app.environment.window_system.root_win,
+                            screen.x_org as i32,
+                            screen.y_org as i32,
+                            screen.width as u32,
+                            25,
+                            0,
+                            dd,
+                            CopyFromParent as u32,
+                            &mut dv,
+                            CWOverrideRedirect | CWBackPixmap | CWEventMask,
+                            &mut wa,
+                        );
+                        map_window(app.environment.window_system.display, win);
+                        raise_window(app.environment.window_system.display, win);
+                        set_class_hints(app.environment.window_system.display, win, &mut ch);
+                        win
+                    },
+                }),
+                BarVariant::None => None,
+                BarVariant::External => None,
+            },
         })
     }
     log!("{:#?}", &app.environment.window_system.screens);
@@ -441,6 +516,8 @@ fn setup() -> ApplicationContainer {
         ws.atoms.net_wm_window_type_dialog,
         ws.atoms.net_client_list,
         ws.atoms.net_wm_state,
+        ws.atoms.net_number_of_desktops,
+        ws.atoms.net_current_desktop,
     ];
 
     change_property(
@@ -531,15 +608,13 @@ fn update_client_name(app: &mut ApplicationContainer, win: u64) {
     }
 }
 /// Returns name of specified client
-fn get_client_name(app: &mut ApplicationContainer, win: u64) -> Option<String> {
+fn get_client_name(app: &mut ApplicationContainer, win: u64) -> String {
     if let Some((s, w, c)) = find_window_indexes(app, win) {
-        Some(
-            app.environment.window_system.screens[s].workspaces[w].clients[c]
-                .window_name
-                .clone(),
-        )
+        app.environment.window_system.screens[s].workspaces[w].clients[c]
+            .window_name
+            .clone()
     } else {
-        None
+        "Unmanaged Window".to_string()
     }
 }
 
@@ -558,6 +633,19 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         }
     };
 
+    let win_type = intern_atom(
+        app.environment.window_system.display,
+        "_NET_WM_WINDOW_TYPE".to_string(),
+        false,
+    );
+    let win_dock = intern_atom(
+        app.environment.window_system.display,
+        "_NET_WM_WINDOW_TYPE_DOCK".to_string(),
+        false,
+    );
+
+    let dock: bool = get_atom_prop(app, win, win_type) == win_dock;
+
     // Create client
     let mut c: Client = Client::default();
     let mut trans = 0;
@@ -567,7 +655,13 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     c.w = wa.width as u32;
     c.h = wa.height as u32;
     c.x = wa.x;
-    c.y = wa.y;
+    c.y = wa.y
+        + match &app.environment.window_system.screens[app.environment.window_system.current_screen]
+            .status_bar
+        {
+            Some(bar) => bar.height as i32,
+            None => 0,
+        };
     c.visible = true;
 
     // Check if window is transient
@@ -664,74 +758,70 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         win,
         EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
     );
-    // Set previous client border to normal
-    if let Some(cw) = get_current_client_id(app) {
+    if !dock {
+        // Set previous client border to normal
+        if let Some(cw) = get_current_client_id(app) {
+            set_window_border(
+                app.environment.window_system.display,
+                cw,
+                argb_to_int(app.environment.config.visuals.normal_border_color),
+            );
+        }
+        // Get current workspace
+        let w = &mut app.environment.window_system.screens
+            [app.environment.window_system.current_screen]
+            .workspaces[app.environment.window_system.current_workspace];
+        // Update client tracker
+        w.current_client = Some(w.clients.len());
+        app.environment.window_system.current_client = w.current_client;
+        // Push to stack
+        w.clients.push(c);
+        // Add window to wm _NET_CLIENT_LIST
+        change_property(
+            app.environment.window_system.display,
+            app.environment.window_system.root_win,
+            app.environment.window_system.atoms.net_client_list,
+            XA_WINDOW,
+            32,
+            PropModeAppend,
+            &win as *const u64 as *mut u8,
+            1,
+        );
+        // set border size
+        let mut wc = x11::xlib::XWindowChanges {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            border_width: app.environment.config.visuals.border_size as i32,
+            sibling: 0,
+            stack_mode: 0,
+        };
+        configure_window(
+            app.environment.window_system.display,
+            win,
+            CWBorderWidth as u32,
+            &mut wc,
+        );
         set_window_border(
             app.environment.window_system.display,
-            cw,
-            app.environment
-                .config
-                .visual_preferences
-                .normal_border_color,
+            win,
+            argb_to_int(app.environment.config.visuals.active_border_color),
         );
+        // Fetch and set client name
+        update_client_name(app, win);
+        // Raise window above other`
+        raise_window(app.environment.window_system.display, win);
+        // Focus on created window
+        set_input_focus(
+            app.environment.window_system.display,
+            win,
+            RevertToPointerRoot,
+            CurrentTime,
+        );
+        // Arrange current workspace
+        arrange(app);
     }
-    // Get current workspace
-    let w = &mut app.environment.window_system.screens
-        [app.environment.window_system.current_screen]
-        .workspaces[app.environment.window_system.current_workspace];
-    // Update client tracker
-    w.current_client = Some(w.clients.len());
-    app.environment.window_system.current_client = w.current_client;
-    // Push to stack
-    w.clients.push(c);
-    // Add window to wm _NET_CLIENT_LIST
-    change_property(
-        app.environment.window_system.display,
-        app.environment.window_system.root_win,
-        app.environment.window_system.atoms.net_client_list,
-        XA_WINDOW,
-        32,
-        PropModeAppend,
-        &win as *const u64 as *mut u8,
-        1,
-    );
-    // set border size
-    let mut wc = x11::xlib::XWindowChanges {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-        border_width: app.environment.config.visual_preferences.border_size as i32,
-        sibling: 0,
-        stack_mode: 0,
-    };
-    configure_window(
-        app.environment.window_system.display,
-        win,
-        CWBorderWidth as u32,
-        &mut wc,
-    );
-    set_window_border(
-        app.environment.window_system.display,
-        win,
-        app.environment
-            .config
-            .visual_preferences
-            .active_border_color,
-    );
-    // Fetch and set client name
-    update_client_name(app, win);
-    // Raise window above other`
-    raise_window(app.environment.window_system.display, win);
-    // Focus on created window
-    set_input_focus(
-        app.environment.window_system.display,
-        win,
-        RevertToPointerRoot,
-        CurrentTime,
-    );
-    // Arrange current workspace
-    arrange(app);
     // Finish mapping
     map_window(app.environment.window_system.display, win);
     log!("   |- Mapped window");
@@ -743,9 +833,15 @@ fn arrange(app: &mut ApplicationContainer) {
     let ws = &mut app.environment.window_system;
     // Go thru all screens
     for screen in &mut ws.screens {
+        // Usable screen
+        let status_height = match &screen.status_bar {
+            Some(bar) => bar.height,
+            None => 0,
+        };
+        let screen_height = screen.height - status_height as i64;
         // Gap width
-        let gw = app.environment.config.visual_preferences.gap_width as i32;
-        let bs = app.environment.config.visual_preferences.border_size as u32;
+        let gw = app.environment.config.visuals.gap_width as i32;
+        let bs = app.environment.config.visuals.border_size as u32;
         // Get amount of visible not floating clients to arrange
         let stack_size = screen.workspaces[screen.current_workspace]
             .clients
@@ -775,36 +871,34 @@ fn arrange(app: &mut ApplicationContainer) {
             if stack_size == 1 {
                 // if only one window selected, just show it
                 client.x = 0;
-                client.y = 0;
+                client.y = status_height as i32;
                 client.w = screen.width as u32;
-                client.h = screen.height as u32;
+                client.h = screen_height as u32;
+            } else if (index as i64) < master_capacity {
+                // if master_capacity is not full put it here
+                log!("      |- Goes to master");
+                // some math...
+                let win_height =
+                    (screen_height - gw as i64 - master_capacity * gw as i64) / master_capacity;
+                // Add gap offset to the left
+                client.x = gw;
+                // Top gap + clients with their gaps offset
+                client.y = status_height as i32 + gw + (win_height as i32 + gw) * index as i32;
+                client.w = master_width - 2 * bs;
+                client.h = win_height as u32 - 2 * bs
             } else {
-                if (index as i64) < master_capacity {
-                    // if master_capacity is not full put it here
-                    log!("      |- Goes to master");
-                    // some math...
-                    let win_height =
-                        (screen.height - gw as i64 - master_capacity * gw as i64) / master_capacity;
-                    // Add gap offset to the left
-                    client.x = 0 + gw;
-                    // Top gap + clients with their gaps offset
-                    client.y = gw + (win_height as i32 + gw) * index as i32;
-                    client.w = master_width - 2 * bs;
-                    client.h = win_height as u32 - 2 * bs
-                } else {
-                    // otherwise put it in secondary stack
-                    log!("      |- Goes to stack");
-                    // a bit more of math...
-                    let win_height = (screen.height
-                        - gw as i64
-                        - (stack_size as i64 - master_capacity) * gw as i64)
+                // otherwise put it in secondary stack
+                log!("      |- Goes to stack");
+                // a bit more of math...
+                let win_height =
+                    (screen_height - gw as i64 - (stack_size as i64 - master_capacity) * gw as i64)
                         / (stack_size as i64 - master_capacity);
-                    client.x = master_width as i32 + (gw * 2) as i32;
-                    client.y =
-                        gw + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
-                    client.w = stack_width as u32 - 2 * bs;
-                    client.h = win_height as u32 - 2 * bs;
-                }
+                client.x = master_width as i32 + (gw * 2);
+                client.y = status_height as i32
+                    + gw
+                    + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
+                client.w = stack_width as u32 - 2 * bs;
+                client.h = win_height as u32 - 2 * bs;
             }
         }
 
@@ -826,7 +920,7 @@ fn arrange(app: &mut ApplicationContainer) {
                     ws.display,
                     client.window_id,
                     if stack_size > 1 {
-                        app.environment.config.visual_preferences.border_size as u32
+                        app.environment.config.visuals.border_size as u32
                     } else {
                         0
                     },
@@ -856,7 +950,7 @@ fn find_window_indexes(app: &mut ApplicationContainer, win: u64) -> Option<(usiz
             }
         }
     }
-    return None;
+    None
 }
 
 /// Shows/Hides all windows on current workspace
@@ -864,27 +958,14 @@ fn show_hide_workspace(app: &mut ApplicationContainer) {
     let ws = &mut app.environment.window_system;
     // Iterate over all clients
     for client in &mut ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients {
-        if client.visible {
-            // move window to left top
-            move_resize_window(
-                ws.display,
-                client.window_id,
-                client.w as i32 * -1,
-                client.h as i32 * -1,
-                client.w,
-                client.h,
-            );
-        } else {
-            // move to normal position
-            move_resize_window(
-                ws.display,
-                client.window_id,
-                client.w as i32 * -1,
-                client.h as i32 * -1,
-                client.w,
-                client.h,
-            );
-        }
+        move_resize_window(
+            ws.display,
+            client.window_id,
+            -(client.w as i32),
+            -(client.h as i32),
+            client.w,
+            client.h,
+        );
         // flip visibility state
         client.visible = !client.visible;
     }
@@ -911,7 +992,7 @@ fn shift_current_client(
     ws.screens[screen].workspaces[workspace].current_client = {
         // Get reference to windows stack
         let clients = &ws.screens[screen].workspaces[workspace].clients;
-        if clients.len() == 0 {
+        if clients.is_empty() {
             // None if no windows
             None
         } else {
@@ -982,18 +1063,17 @@ fn send_atom(app: &mut ApplicationContainer, win: u64, e: x11::xlib::Atom) -> bo
                 );
             }
         }
-        return false;
+        false
     } else {
-        return false;
+        false
     }
 }
 
 fn get_atom_prop(app: &mut ApplicationContainer, win: u64, prop: Atom) -> Atom {
-    // return 0;
     let mut dummy_atom: u64 = 0;
-    let mut dummy_int = 0;
+    let mut dummy_int: i32 = 0;
     let mut dummy_long: u64 = 0;
-    let mut property_return: *mut u8 = 0 as *mut u8;
+    let mut property_return: *mut u8 = std::ptr::null_mut::<u8>();
     let mut atom: u64 = 0;
     unsafe {
         if x11::xlib::XGetWindowProperty(
@@ -1001,7 +1081,7 @@ fn get_atom_prop(app: &mut ApplicationContainer, win: u64, prop: Atom) -> Atom {
             win,
             prop,
             0,
-            size_of::<Atom> as i64,
+            size_of::<Atom>() as i64,
             0,
             XA_ATOM,
             &mut dummy_atom as *mut u64,
@@ -1058,13 +1138,9 @@ fn update_active_window(app: &mut ApplicationContainer) {
 
 fn get_current_client_id(app: &mut ApplicationContainer) -> Option<u64> {
     let ws = &app.environment.window_system;
-    if let Some(index) = ws.current_client {
-        Some(
-            ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id,
-        )
-    } else {
-        None
-    }
+    ws.current_client.map(|index| {
+        ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id
+    })
 }
 
 fn update_trackers(app: &mut ApplicationContainer, win: u64) {
@@ -1078,7 +1154,7 @@ fn update_trackers(app: &mut ApplicationContainer, win: u64) {
     };
 }
 
-fn spawn(app: &mut ApplicationContainer, cmd: &String) {
+fn spawn(app: &mut ApplicationContainer, cmd: String) {
     unsafe {
         match nix::unistd::fork() {
             Ok(nix::unistd::ForkResult::Parent { child: _ }) => {
@@ -1087,7 +1163,7 @@ fn spawn(app: &mut ApplicationContainer, cmd: &String) {
             Ok(nix::unistd::ForkResult::Child) => {
                 log!("CHILD SPAWNED");
                 if app.environment.window_system.display as *mut x11::xlib::Display as usize != 0 {
-                    let _ = nix::unistd::close(x11::xlib::XConnectionNumber(
+                    nix::unistd::close(x11::xlib::XConnectionNumber(
                         app.environment.window_system.display,
                     ))
                     .unwrap();
@@ -1095,9 +1171,9 @@ fn spawn(app: &mut ApplicationContainer, cmd: &String) {
                 let args = [
                     &std::ffi::CString::new("/usr/bin/sh").unwrap(),
                     &std::ffi::CString::new("-c").unwrap(),
-                    &std::ffi::CString::new(cmd.clone()).unwrap(),
+                    &std::ffi::CString::new(cmd).unwrap(),
                 ];
-                let _ = nix::unistd::execvp(&args[0], &args);
+                let _ = nix::unistd::execvp(args[0], &args);
             }
             Err(_) => println!("Fork Failed"),
         }
@@ -1127,582 +1203,580 @@ fn update_client_list(app: &mut ApplicationContainer) {
     }
 }
 
-/// Starts main WM loop
-// fn run(config: &ConfigurationContainer, ws: &mut WindowSystemContainer) {
-fn run(app: &mut ApplicationContainer) {
-    log!("|===== run =====");
-    loop {
-        // Process Events
-        let ev = next_event(app.environment.window_system.display);
-        // Do pattern matching for known events
-        match ev.type_ {
-            x11::xlib::KeyPress => {
-                log!("|- Got keyboard event");
-                // Safely retrive struct
-                let ev = ev.key.unwrap();
-                // Iterate over key actions matching current key input
-                for action in app.environment.config.key_actions.clone() {
-                    if ev.keycode
-                        == keysym_to_keycode(app.environment.window_system.display, action.keysym)
-                        && ev.state == action.modifier
-                    {
-                        // Log action type
-                        log!("|- Got {:?} action", &action.result);
-                        // Match action result and run related function
-                        match &action.result {
-                            ActionResult::KillClient => {
-                                log!("   |- Got `KillClient` Action");
-                                // Check if there any windows selected
-                                match app.environment.window_system.current_client {
-                                    Some(index) => {
-                                        let id = app.environment.window_system.screens
-                                            [app.environment.window_system.current_screen]
-                                            .workspaces
-                                            [app.environment.window_system.current_workspace]
-                                            .clients[index]
-                                            .window_id;
-                                        log!("      |- Killing window {}", id);
-                                        if !send_atom(
-                                            app,
-                                            id,
-                                            app.environment.window_system.atoms.wm_delete,
-                                        ) {
-                                            grab_server(app.environment.window_system.display);
-                                            set_close_down_mode(
-                                                app.environment.window_system.display,
-                                                DestroyAll,
-                                            );
-                                            kill_client(app.environment.window_system.display, id);
-                                            ungrab_server(app.environment.window_system.display);
-                                        };
-                                    }
-                                    None => {
-                                        log!("      |- No window selected");
-                                    }
-                                };
-                            }
-                            ActionResult::Spawn(cmd) => {
-                                log!("   |- Got `Spawn` Action");
-                                spawn(app, cmd);
-                                // // Run sh with specified command
-                                // let mut handle = Command::new("/usr/bin/sh")
-                                //     .arg("-c")
-                                //     .arg(cmd)
-                                //     .spawn()
-                                //     .expect(format!("can't execute {cmd}").as_str());
-                                // // Run it in sepated thread
-                                // // TODO: WHERE ARE HANDLERS STORED
-                                // let _lost_handle = std::thread::Builder::new().name(cmd.to_owned()).spawn(move || {
-                                //     handle.wait().expect("can't run process");
-                                // });
-                            }
-                            ActionResult::MoveToScreen(d) => {
-                                // Check if window is selected
-                                if let Some(index) = app.environment.window_system.current_client {
-                                    // Get current screen index
-                                    let mut cs = app.environment.window_system.current_screen;
-                                    // Update index depending on supplied direction
-                                    cs = match d {
-                                        ScreenSwitching::Next => {
-                                            (cs + 1) % app.environment.window_system.screens.len()
-                                        }
-                                        ScreenSwitching::Previous => {
-                                            (cs + app.environment.window_system.screens.len() - 1)
-                                                % app.environment.window_system.screens.len()
-                                        }
-                                    };
-                                    // Pop client
-                                    let cc = app.environment.window_system.screens
-                                        [app.environment.window_system.current_screen]
-                                        .workspaces
-                                        [app.environment.window_system.current_workspace]
-                                        .clients
-                                        .remove(index);
-                                    set_window_border(
-                                        app.environment.window_system.display,
-                                        cc.window_id,
-                                        app.environment
-                                            .config
-                                            .visual_preferences
-                                            .normal_border_color,
-                                    );
-                                    // Update client tracker on current screen
-                                    shift_current_client(app, None, None);
-                                    // Get workspace tracker(borrow checker is really mad at me)
-                                    let nw =
-                                        app.environment.window_system.screens[cs].current_workspace;
-                                    // Add window to stack of another display
-                                    app.environment.window_system.screens[cs].workspaces[nw]
-                                        .clients
-                                        .push(cc);
-                                    // Arrange all monitors
-                                    arrange(app);
-                                }
-                            }
-                            ActionResult::FocusOnScreen(d) => {
-                                // Get current screen
-                                let mut cs = app.environment.window_system.current_screen;
-                                // Update it
-                                cs = match d {
-                                    ScreenSwitching::Next => {
-                                        (cs + 1) % app.environment.window_system.screens.len()
-                                    }
-                                    ScreenSwitching::Previous => {
-                                        (cs + app.environment.window_system.screens.len() - 1)
-                                            % app.environment.window_system.screens.len()
-                                    }
-                                };
-                                if let Some(cw) = get_current_client_id(app) {
-                                    set_window_border(
-                                        app.environment.window_system.display,
-                                        cw,
-                                        app.environment
-                                            .config
-                                            .visual_preferences
-                                            .normal_border_color,
-                                    );
-                                }
-                                // Change trackers
-                                app.environment.window_system.current_screen = cs;
-                                app.environment.window_system.current_workspace =
-                                    app.environment.window_system.screens
-                                        [app.environment.window_system.current_screen]
-                                        .current_workspace;
-                                app.environment.window_system.current_client = app
-                                    .environment
-                                    .window_system
-                                    .screens[app.environment.window_system.current_screen]
-                                    .workspaces[app.environment.window_system.current_workspace]
-                                    .current_client;
-                                if let Some(index) = app.environment.window_system.current_client {
-                                    let win = app.environment.window_system.screens
-                                        [app.environment.window_system.current_screen]
-                                        .workspaces
-                                        [app.environment.window_system.current_workspace]
-                                        .clients[index]
-                                        .window_id;
-                                    set_input_focus(
-                                        app.environment.window_system.display,
-                                        win,
-                                        RevertToPointerRoot,
-                                        CurrentTime,
-                                    );
-                                    update_active_window(app);
-                                }
-                                if let Some(cw) = get_current_client_id(app) {
-                                    set_window_border(
-                                        app.environment.window_system.display,
-                                        cw,
-                                        app.environment
-                                            .config
-                                            .visual_preferences
-                                            .active_border_color,
-                                    );
-                                }
-                            }
-                            ActionResult::MoveToWorkspace(n) => {
-                                log!("   |- Got `MoveToWorkspace` Action ");
-                                // Check if moving to another workspace
-                                if *n as usize != app.environment.window_system.current_workspace {
-                                    // Check if any client is selected
-                                    if let Some(index) =
-                                        app.environment.window_system.current_client
-                                    {
-                                        // Pop current client
-                                        let mut cc = app.environment.window_system.screens
-                                            [app.environment.window_system.current_screen]
-                                            .workspaces
-                                            [app.environment.window_system.current_workspace]
-                                            .clients
-                                            .remove(index);
-                                        set_window_border(
-                                            app.environment.window_system.display,
-                                            cc.window_id,
-                                            app.environment
-                                                .config
-                                                .visual_preferences
-                                                .normal_border_color,
-                                        );
-                                        // Update current workspace layout
-                                        arrange(app);
-                                        // Move window out of view
-                                        move_resize_window(
-                                            app.environment.window_system.display,
-                                            cc.window_id,
-                                            cc.w as i32 * -1,
-                                            cc.h as i32 * -1,
-                                            cc.w,
-                                            cc.h,
-                                        );
-                                        cc.visible = !cc.visible;
-                                        // Update tracker
-                                        shift_current_client(app, None, None);
-                                        // Add client to choosen workspace (will be arranged later)
-                                        app.environment.window_system.screens
-                                            [app.environment.window_system.current_screen]
-                                            .workspaces[*n as usize]
-                                            .clients
-                                            .push(cc);
-                                    }
-                                }
-                            }
-                            ActionResult::FocusOnWorkspace(n) => {
-                                log!("   |- Got `FocusOnWorkspace` Action");
-                                // Check is focusing on another workspace
-                                if *n as usize != app.environment.window_system.current_workspace {
-                                    // Hide current workspace
-                                    show_hide_workspace(app);
-                                    // unfocus current win
-                                    if let Some(cw) = get_current_client_id(app) {
-                                        set_window_border(
-                                            app.environment.window_system.display,
-                                            cw,
-                                            app.environment
-                                                .config
-                                                .visual_preferences
-                                                .normal_border_color,
-                                        );
-                                    }
-                                    // Update workspace index
-                                    app.environment.window_system.current_workspace = *n as usize;
-                                    app.environment.window_system.screens
-                                        [app.environment.window_system.current_screen]
-                                        .current_workspace = *n as usize;
-                                    // Update current client
-                                    app.environment.window_system.current_client =
-                                        app.environment.window_system.screens
-                                            [app.environment.window_system.current_screen]
-                                            .workspaces
-                                            [app.environment.window_system.current_workspace]
-                                            .current_client;
-                                    if let Some(cw) = get_current_client_id(app) {
-                                        set_window_border(
-                                            app.environment.window_system.display,
-                                            cw,
-                                            app.environment
-                                                .config
-                                                .visual_preferences
-                                                .active_border_color,
-                                        );
-                                    }
-                                    // Show current client
-                                    show_hide_workspace(app);
-                                    // Arrange update workspace
-                                    arrange(app);
-                                    if let Some(index) =
-                                        app.environment.window_system.current_client
-                                    {
-                                        let win = app.environment.window_system.screens
-                                            [app.environment.window_system.current_screen]
-                                            .workspaces
-                                            [app.environment.window_system.current_workspace]
-                                            .clients[index]
-                                            .window_id;
-                                        set_input_focus(
-                                            app.environment.window_system.display,
-                                            win,
-                                            RevertToPointerRoot,
-                                            CurrentTime,
-                                        );
-                                        update_active_window(app);
-                                    }
-                                }
-                            }
-                            ActionResult::Quit => {
-                                log!("   |- Got `Quit` Action. `Quiting`");
-                                app.environment.window_system.running = false;
-                            }
-                            ActionResult::UpdateMasterCapacity(i) => {
-                                // Change master size
-                                app.environment.window_system.screens
-                                    [app.environment.window_system.current_screen]
-                                    .workspaces[app.environment.window_system.current_workspace]
-                                    .master_capacity += *i;
-                                // Rearrange windows
-                                arrange(app);
-                            }
-                            ActionResult::UpdateMasterWidth(w) => {
-                                // Update master width
-                                app.environment.window_system.screens
-                                    [app.environment.window_system.current_screen]
-                                    .workspaces[app.environment.window_system.current_workspace]
-                                    .master_width += *w;
-                                // Rearrange windows
-                                arrange(app);
-                            }
-                            ActionResult::DumpInfo => {
-                                // Dump all info to log
-                                log!("{:#?}", &app.environment.window_system);
-                            }
-                            ActionResult::ToggleFloat => {
-                                if let Some(c) = app.environment.window_system.current_client {
-                                    let state = app.environment.window_system.screens
-                                        [app.environment.window_system.current_screen]
-                                        .workspaces
-                                        [app.environment.window_system.current_workspace]
-                                        .clients[c]
-                                        .floating;
-                                    app.environment.window_system.screens
-                                        [app.environment.window_system.current_screen]
-                                        .workspaces
-                                        [app.environment.window_system.current_workspace]
-                                        .clients[c]
-                                        .floating = !state;
-                                    arrange(app);
-                                }
-                            }
-                            ActionResult::CycleStack(_i) => {}
-                        }
-                    }
-                }
-            }
-
-            // Used for adding windows to WM
-            x11::xlib::MapRequest => {
-                let ew: u64 = ev.map_request.unwrap().window;
-                log!("|- Map Request From Window: {ew}");
-                manage_client(app, ew);
-            }
-
-            // Checks if window got crossed, used for focus and monitor tracking
-            x11::xlib::EnterNotify => {
-                let ew: u64 = ev.crossing.unwrap().window;
-                log!(
-                    "|- Crossed Window `{}` ({})",
-                    get_client_name(app, ew).unwrap_or("Unmanaged window".to_string()),
-                    ew
-                );
-                if ew != app.environment.window_system.root_win {
-                    log!("   |- Setting focus to window");
-                    // Focus on crossed window
-                    if let Some(cw) = get_current_client_id(app) {
-                        set_window_border(
-                            app.environment.window_system.display,
-                            cw,
-                            app.environment
-                                .config
-                                .visual_preferences
-                                .normal_border_color,
-                        );
-                    }
-                    set_window_border(
-                        app.environment.window_system.display,
-                        ew,
-                        app.environment
-                            .config
-                            .visual_preferences
-                            .active_border_color,
-                    );
-                    update_trackers(app, ew);
-                    update_active_window(app);
-                    set_input_focus(
-                        app.environment.window_system.display,
-                        ew,
-                        RevertToPointerRoot,
-                        CurrentTime,
-                    );
-                } else {
-                    let ws = &mut app.environment.window_system;
-
-                    if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
-                        .clients
-                        .len()
-                        == 0
-                    {
-                        set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
-                        delete_property(ws.display, ws.root_win, ws.atoms.net_active_window);
-                    }
-                }
-            }
-
-            // Used to unmanage_window
-            x11::xlib::DestroyNotify => {
-                let ew: u64 = ev.destroy_window.unwrap().window;
-                log!(
-                    "|- `{}` destroyed",
-                    get_client_name(app, ew).unwrap_or("Unmanaged window".to_string())
-                );
-                unmanage_window(app, ew);
-            }
-
-            // Used to unmanage_window
-            x11::xlib::UnmapNotify => {
-                let ew: u64 = ev.unmap.unwrap().window;
-                log!(
-                    "|- `{}` unmapped",
-                    get_client_name(app, ew).unwrap_or("Unmanaged window".to_string())
-                );
-                unmanage_window(app, ew);
-            }
-
-            // Used for tracking selected monitor if no windows present
-            x11::xlib::MotionNotify => {
-                // Log some info
-                log!("|- `Motion` detected");
-                // Safely retrive event struct
-                let p = ev.motion.unwrap();
-                // Get mouse positions
-                let (x, y) = (p.x as i64, p.y as i64);
-                // Iterate over all screens
-                for screen in &app.environment.window_system.screens {
-                    // Check if mouse position "inside" screens
-                    if screen.x <= x
-                        && x < screen.x + screen.width
-                        && screen.y <= y
-                        && y < screen.y + screen.height
-                    {
-                        // Update trackers
-                        app.environment.window_system.current_screen = screen.number as usize;
-                        app.environment.window_system.current_workspace =
-                            app.environment.window_system.screens
-                                [app.environment.window_system.current_screen]
-                                .current_workspace;
-                        app.environment.window_system.current_client =
-                            app.environment.window_system.screens
-                                [app.environment.window_system.current_screen]
-                                .workspaces[app.environment.window_system.current_workspace]
-                                .current_client;
-                    }
-                }
-            }
-
-            // Used for updating names of applications
-            x11::xlib::PropertyNotify => {
-                // Safely retrive event struct
-                let p = ev.property.unwrap();
-                log!("|- Got property notify");
-                // If current window is not root proceed to updating name
-                if p.window != app.environment.window_system.root_win {
-                    log!(
-                        "|- `Property` changed for window {} `{}`",
-                        p.window,
-                        get_client_name(app, p.window).unwrap_or("Unmanaged window".to_string())
-                    );
-                    update_client_name(app, p.window);
-                }
-            }
-            x11::xlib::ConfigureNotify => {
-                let c = ev.configure.unwrap();
-                log!("|- Got ConfigureNotify");
-                if c.window == app.environment.window_system.root_win {
-                    let n = app.environment.window_system.screens.len();
-                    let screens = xinerama_query_screens(app.environment.window_system.display)
-                        .expect("Running without xinerama is not supported");
-                    let screens_amount = screens.len();
-                    for _ in n..screens_amount {
-                        app.environment.window_system.screens.push(Screen {
-                            number: 0,
-                            x: 0,
-                            y: 0,
-                            width: 0,
-                            height: 0,
-                            workspaces: {
-                                let mut wv = Vec::new();
-                                for i in 0..10 {
-                                    wv.push(Workspace {
-                                        number: i,
-                                        clients: Vec::new(),
-                                        current_client: None,
-                                        master_capacity: 1,
-                                        master_width: 0.5,
-                                    })
-                                }
-                                wv
-                            },
-                            current_workspace: 0,
-                        })
-                    }
-                    for (index, screen) in screens.iter().enumerate() {
-                        app.environment.window_system.screens[index].number =
-                            screen.screen_number as i64;
-                        app.environment.window_system.screens[index].x = screen.x_org as i64;
-                        app.environment.window_system.screens[index].y = screen.y_org as i64;
-                        app.environment.window_system.screens[index].width = screen.width as i64;
-                        app.environment.window_system.screens[index].height = screen.height as i64;
-                    }
-                    for _ in screens_amount..n {
-                        let lsw = app
-                            .environment
-                            .window_system
-                            .screens
-                            .pop()
-                            .unwrap()
-                            .workspaces;
-                        for (index, workspace) in lsw.into_iter().enumerate() {
-                            app.environment.window_system.screens[0].workspaces[index]
-                                .clients
-                                .extend(workspace.clients);
-                        }
-                    }
-                    arrange(app);
-                }
-            }
-            x11::xlib::ClientMessage => {
-                let c = ev.client.unwrap();
-                if let Some(cc) = find_window_indexes(app, c.window) {
-                    let cc = &mut app.environment.window_system.screens[cc.0].workspaces[cc.1]
-                        .clients[cc.2];
-                    log!("|- Got `message`");
-                    log!("   |- From: `{}`", &cc.window_name);
-                    if c.message_type == app.environment.window_system.atoms.net_wm_state {
-                        log!("   |- Type: `window state`");
-                        if c.data.get_long(1) as u64
-                            == app.environment.window_system.atoms.net_wm_fullscreen
-                            || c.data.get_long(2) as u64
-                                == app.environment.window_system.atoms.net_wm_fullscreen
-                        {
-                            let sf =
-                                c.data.get_long(0) == 1 || c.data.get_long(0) == 2 && cc.fullscreen;
-                            if sf && !cc.fullscreen {
-                                change_property(
-                                    app.environment.window_system.display,
-                                    c.window,
-                                    app.environment.window_system.atoms.net_wm_state,
-                                    XA_ATOM,
-                                    32,
-                                    PropModeReplace,
-                                    &mut app.environment.window_system.atoms.net_wm_fullscreen
-                                        as *mut u64 as *mut u8,
-                                    1,
-                                );
-                                cc.fullscreen = true;
-                                arrange(app);
-                            } else if !sf && cc.fullscreen {
-                                change_property(
-                                    app.environment.window_system.display,
-                                    c.window,
-                                    app.environment.window_system.atoms.net_wm_state,
-                                    XA_ATOM,
-                                    32,
-                                    PropModeReplace,
-                                    0 as *mut u8,
-                                    0,
-                                );
-                                cc.fullscreen = false;
-                                arrange(app);
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
+fn kill_client(app: &mut ApplicationContainer) {
+    // Check if there any windows selected
+    if let Some(index) = app.environment.window_system.current_client {
+        let id = app.environment.window_system.screens
+            [app.environment.window_system.current_screen]
+            .workspaces[app.environment.window_system.current_workspace]
+            .clients[index]
+            .window_id;
+        log!("      |- Killing window {}", id);
+        if !send_atom(app, id, app.environment.window_system.atoms.wm_delete) {
+            grab_server(app.environment.window_system.display);
+            set_close_down_mode(app.environment.window_system.display, DestroyAll);
+            x_kill_client(app.environment.window_system.display, id);
+            ungrab_server(app.environment.window_system.display);
         };
-        if !app.environment.window_system.running {
-            break;
+    } else {
+        log!("      |- No window selected");
+    };
+}
+
+fn move_to_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
+    // Check if window is selected
+    if let Some(index) = app.environment.window_system.current_client {
+        // Get current screen index
+        let mut cs = app.environment.window_system.current_screen;
+        // Update index depending on supplied direction
+        cs = match d {
+            ScreenSwitching::Next => (cs + 1) % app.environment.window_system.screens.len(),
+            ScreenSwitching::Previous => {
+                (cs + app.environment.window_system.screens.len() - 1)
+                    % app.environment.window_system.screens.len()
+            }
+        };
+        // Pop client
+        let cc = app.environment.window_system.screens
+            [app.environment.window_system.current_screen]
+            .workspaces[app.environment.window_system.current_workspace]
+            .clients
+            .remove(index);
+        set_window_border(
+            app.environment.window_system.display,
+            cc.window_id,
+            argb_to_int(app.environment.config.visuals.normal_border_color),
+        );
+        // Update client tracker on current screen
+        shift_current_client(app, None, None);
+        // Get workspace tracker(borrow checker is really mad at me)
+        let nw = app.environment.window_system.screens[cs].current_workspace;
+        // Add window to stack of another display
+        app.environment.window_system.screens[cs].workspaces[nw]
+            .clients
+            .push(cc);
+        // Arrange all monitors
+        arrange(app);
+    }
+}
+
+fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
+    // Get current screen
+    let mut cs = app.environment.window_system.current_screen;
+    // Update it
+    cs = match d {
+        ScreenSwitching::Next => (cs + 1) % app.environment.window_system.screens.len(),
+        ScreenSwitching::Previous => {
+            (cs + app.environment.window_system.screens.len() - 1)
+                % app.environment.window_system.screens.len()
+        }
+    };
+    if let Some(cw) = get_current_client_id(app) {
+        set_window_border(
+            app.environment.window_system.display,
+            cw,
+            argb_to_int(app.environment.config.visuals.normal_border_color),
+        );
+    }
+    // Change trackers
+    app.environment.window_system.current_screen = cs;
+    app.environment.window_system.current_workspace = app.environment.window_system.screens
+        [app.environment.window_system.current_screen]
+        .current_workspace;
+    app.environment.window_system.current_client = app.environment.window_system.screens
+        [app.environment.window_system.current_screen]
+        .workspaces[app.environment.window_system.current_workspace]
+        .current_client;
+    if let Some(index) = app.environment.window_system.current_client {
+        let win = app.environment.window_system.screens
+            [app.environment.window_system.current_screen]
+            .workspaces[app.environment.window_system.current_workspace]
+            .clients[index]
+            .window_id;
+        set_input_focus(
+            app.environment.window_system.display,
+            win,
+            RevertToPointerRoot,
+            CurrentTime,
+        );
+        update_active_window(app);
+    }
+    if let Some(cw) = get_current_client_id(app) {
+        set_window_border(
+            app.environment.window_system.display,
+            cw,
+            argb_to_int(app.environment.config.visuals.active_border_color),
+        );
+    }
+}
+
+fn move_to_workspace(app: &mut ApplicationContainer, n: u64) {
+    log!("   |- Got `MoveToWorkspace` Action ");
+    // Check if moving to another workspace
+    if n as usize != app.environment.window_system.current_workspace {
+        // Check if any client is selected
+        if let Some(index) = app.environment.window_system.current_client {
+            // Pop current client
+            let mut cc = app.environment.window_system.screens
+                [app.environment.window_system.current_screen]
+                .workspaces[app.environment.window_system.current_workspace]
+                .clients
+                .remove(index);
+            set_window_border(
+                app.environment.window_system.display,
+                cc.window_id,
+                argb_to_int(app.environment.config.visuals.normal_border_color),
+            );
+            // Update current workspace layout
+            arrange(app);
+            // Move window out of view
+            move_resize_window(
+                app.environment.window_system.display,
+                cc.window_id,
+                -(cc.w as i32),
+                -(cc.h as i32),
+                cc.w,
+                cc.h,
+            );
+            cc.visible = !cc.visible;
+            // Update tracker
+            shift_current_client(app, None, None);
+            // Add client to choosen workspace (will be arranged later)
+            app.environment.window_system.screens[app.environment.window_system.current_screen]
+                .workspaces[n as usize]
+                .clients
+                .push(cc);
         }
     }
 }
 
-/// Closes all connections and saves info
+fn focus_on_workspace(app: &mut ApplicationContainer, n: u64) {
+    log!("   |- Got `FocusOnWorkspace` Action");
+    // Check is focusing on another workspace
+    if n as usize != app.environment.window_system.current_workspace {
+        // Hide current workspace
+        show_hide_workspace(app);
+        // unfocus current win
+        if let Some(cw) = get_current_client_id(app) {
+            set_window_border(
+                app.environment.window_system.display,
+                cw,
+                argb_to_int(app.environment.config.visuals.normal_border_color),
+            );
+        }
+        // Update workspace index
+        app.environment.window_system.current_workspace = n as usize;
+        app.environment.window_system.screens[app.environment.window_system.current_screen]
+            .current_workspace = n as usize;
+        change_property(
+            app.environment.window_system.display,
+            app.environment.window_system.root_win,
+            app.environment.window_system.atoms.net_current_desktop,
+            XA_CARDINAL,
+            32,
+            PropModeReplace,
+            &n as *const u64 as *mut u64 as *mut u8,
+            1,
+        );
+        // Update current client
+        app.environment.window_system.current_client = app.environment.window_system.screens
+            [app.environment.window_system.current_screen]
+            .workspaces[app.environment.window_system.current_workspace]
+            .current_client;
+        if let Some(cw) = get_current_client_id(app) {
+            set_window_border(
+                app.environment.window_system.display,
+                cw,
+                argb_to_int(app.environment.config.visuals.active_border_color),
+            );
+        }
+        // Show current client
+        show_hide_workspace(app);
+        // Arrange update workspace
+        arrange(app);
+        if let Some(index) = app.environment.window_system.current_client {
+            let win = app.environment.window_system.screens
+                [app.environment.window_system.current_screen]
+                .workspaces[app.environment.window_system.current_workspace]
+                .clients[index]
+                .window_id;
+            set_input_focus(
+                app.environment.window_system.display,
+                win,
+                RevertToPointerRoot,
+                CurrentTime,
+            );
+            update_active_window(app);
+        }
+    }
+}
+
+fn update_master_width(app: &mut ApplicationContainer, w: f64) {
+    // Update master width
+    app.environment.window_system.screens[app.environment.window_system.current_screen]
+        .workspaces[app.environment.window_system.current_workspace]
+        .master_width += w;
+    // Rearrange windows
+    arrange(app);
+}
+
+fn update_master_capacity(app: &mut ApplicationContainer, i: i64) {
+    // Change master size
+    app.environment.window_system.screens[app.environment.window_system.current_screen]
+        .workspaces[app.environment.window_system.current_workspace]
+        .master_capacity += i;
+    // Rearrange windows
+    arrange(app);
+}
+
+fn toggle_float(app: &mut ApplicationContainer) {
+    if let Some(c) = app.environment.window_system.current_client {
+        let state = app.environment.window_system.screens
+            [app.environment.window_system.current_screen]
+            .workspaces[app.environment.window_system.current_workspace]
+            .clients[c]
+            .floating;
+        app.environment.window_system.screens[app.environment.window_system.current_screen]
+            .workspaces[app.environment.window_system.current_workspace]
+            .clients[c]
+            .floating = !state;
+        arrange(app);
+    }
+}
+
+fn key_press(app: &mut ApplicationContainer, ev: Event) {
+    log!("|- Got keyboard event");
+    // Safely retrive struct
+    let ev = ev.key.unwrap();
+    // Iterate over key actions matching current key input
+    for action in app.environment.config.key_actions.clone() {
+        if ev.keycode == keysym_to_keycode(app.environment.window_system.display, action.keysym)
+            && ev.state == action.modifier
+        {
+            // Log action type
+            log!("|- Got {:?} action", &action.result);
+            // Match action result and run related function
+            match &action.result {
+                ActionResult::KillClient => {
+                    log!("   |- Got `KillClient` Action");
+                    kill_client(app);
+                }
+                ActionResult::Spawn(cmd) => {
+                    log!("   |- Got `Spawn` Action");
+                    spawn(app, cmd.clone());
+                }
+                ActionResult::MoveToScreen(d) => {
+                    move_to_screen(app, *d);
+                }
+                ActionResult::FocusOnScreen(d) => {
+                    focus_on_screen(app, *d);
+                }
+                ActionResult::MoveToWorkspace(n) => {
+                    move_to_workspace(app, *n);
+                }
+                ActionResult::FocusOnWorkspace(n) => {
+                    focus_on_workspace(app, *n);
+                }
+                ActionResult::Quit => {
+                    log!("   |- Got `Quit` Action. `Quiting`");
+                    app.environment.window_system.running = false;
+                }
+                ActionResult::UpdateMasterCapacity(i) => {
+                    update_master_capacity(app, *i);
+                }
+                ActionResult::UpdateMasterWidth(w) => {
+                    update_master_width(app, *w);
+                }
+                ActionResult::DumpInfo => {
+                    // Dump all info to log
+                    log!("{:#?}", &app.environment.window_system);
+                }
+                ActionResult::ToggleFloat => {
+                    toggle_float(app);
+                }
+                ActionResult::CycleStack(_i) => {}
+            }
+        }
+    }
+}
+
+fn map_request(app: &mut ApplicationContainer, ev: Event) {
+    let ew: u64 = ev.map_request.unwrap().window;
+    log!("|- Map Request From Window: {ew}");
+    manage_client(app, ew);
+}
+
+fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
+    let ew: u64 = ev.crossing.unwrap().window;
+    log!("|- Crossed Window `{}` ({})", get_client_name(app, ew), ew);
+    if ew != app.environment.window_system.root_win {
+        log!("   |- Setting focus to window");
+        // Focus on crossed window
+        if let Some(cw) = get_current_client_id(app) {
+            set_window_border(
+                app.environment.window_system.display,
+                cw,
+                argb_to_int(app.environment.config.visuals.normal_border_color),
+            );
+        }
+        set_window_border(
+            app.environment.window_system.display,
+            ew,
+            argb_to_int(app.environment.config.visuals.active_border_color),
+        );
+        update_trackers(app, ew);
+        update_active_window(app);
+        set_input_focus(
+            app.environment.window_system.display,
+            ew,
+            RevertToPointerRoot,
+            CurrentTime,
+        );
+    } else {
+        let ws = &mut app.environment.window_system;
+
+        if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
+            .clients
+            .is_empty()
+        {
+            set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
+            delete_property(ws.display, ws.root_win, ws.atoms.net_active_window);
+        }
+    }
+}
+
+fn destroy_notify(app: &mut ApplicationContainer, ev: Event) {
+    let ew: u64 = ev.destroy_window.unwrap().window;
+    log!("|- `{}` destroyed", get_client_name(app, ew));
+    unmanage_window(app, ew);
+}
+
+fn unmap_notify(app: &mut ApplicationContainer, ev: Event) {
+    let ew: u64 = ev.unmap.unwrap().window;
+    log!("|- `{}` unmapped", get_client_name(app, ew));
+    unmanage_window(app, ew);
+}
+
+fn motion_notify(app: &mut ApplicationContainer, ev: Event) {
+    // Log some info
+    log!("|- `Motion` detected");
+    // Safely retrive event struct
+    let p = ev.motion.unwrap();
+    // Get mouse positions
+    let (x, y) = (p.x as i64, p.y as i64);
+    // Iterate over all screens
+    for screen in &app.environment.window_system.screens {
+        // Check if mouse position "inside" screens
+        if screen.x <= x
+            && x < screen.x + screen.width
+            && screen.y <= y
+            && y < screen.y + screen.height
+        {
+            // Update trackers
+            app.environment.window_system.current_screen = screen.number as usize;
+            app.environment.window_system.current_workspace = app.environment.window_system.screens
+                [app.environment.window_system.current_screen]
+                .current_workspace;
+            app.environment.window_system.current_client = app.environment.window_system.screens
+                [app.environment.window_system.current_screen]
+                .workspaces[app.environment.window_system.current_workspace]
+                .current_client;
+        }
+    }
+}
+
+fn property_notify(app: &mut ApplicationContainer, ev: Event) {
+    // Safely retrive event struct
+    let p = ev.property.unwrap();
+    log!("|- Got property notify");
+    // If current window is not root proceed to updating name
+    if p.window != app.environment.window_system.root_win {
+        log!(
+            "|- `Property` changed for window {} `{}`",
+            p.window,
+            get_client_name(app, p.window)
+        );
+        update_client_name(app, p.window);
+    }
+}
+
+fn configure_notify(app: &mut ApplicationContainer, ev: Event) {
+    let c = ev.configure.unwrap();
+    log!("|- Got ConfigureNotify");
+    if c.window == app.environment.window_system.root_win {
+        let n = app.environment.window_system.screens.len();
+        let screens = xinerama_query_screens(app.environment.window_system.display)
+            .expect("Running without xinerama is not supported");
+        let screens_amount = screens.len();
+        for _ in n..screens_amount {
+            app.environment.window_system.screens.push(Screen {
+                number: 0,
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                workspaces: {
+                    let mut wv = Vec::new();
+                    for i in 0..10 {
+                        wv.push(Workspace {
+                            number: i,
+                            clients: Vec::new(),
+                            current_client: None,
+                            master_capacity: 1,
+                            master_width: 0.5,
+                        })
+                    }
+                    wv
+                },
+                current_workspace: 0,
+                status_bar: match app.environment.config.bar {
+                    BarVariant::Bar(_) => Some(StatusBarContainer { height: 0, win: 0 }),
+                    BarVariant::None => None,
+                    BarVariant::External => None,
+                },
+            })
+        }
+        for (index, screen) in screens.iter().enumerate() {
+            app.environment.window_system.screens[index].number = screen.screen_number as i64;
+            app.environment.window_system.screens[index].x = screen.x_org as i64;
+            app.environment.window_system.screens[index].y = screen.y_org as i64;
+            app.environment.window_system.screens[index].width = screen.width as i64;
+            app.environment.window_system.screens[index].height = screen.height as i64;
+            app.environment.window_system.screens[index].status_bar =
+                match &app.environment.config.bar {
+                    BarVariant::Bar(bar) => Some(StatusBarContainer {
+                        height: bar.height as u64,
+                        win: {
+                            let dd = default_depth(
+                                app.environment.window_system.display,
+                                screen.screen_number,
+                            );
+                            let mut dv = default_visual(
+                                app.environment.window_system.display,
+                                screen.screen_number,
+                            );
+                            let mut wa = unsafe {
+                                let mut wa: XSetWindowAttributes =
+                                    std::mem::MaybeUninit::zeroed().assume_init();
+                                wa.override_redirect = 1;
+                                wa.background_pixmap = ParentRelative as u64;
+                                wa
+                            };
+                            let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+                            let mut ch = XClassHint {
+                                res_name: name.as_ptr() as *mut i8,
+                                res_class: name.as_ptr() as *mut i8,
+                            };
+                            let win = create_window(
+                                app.environment.window_system.display,
+                                app.environment.window_system.root_win,
+                                screen.x_org as i32,
+                                screen.y_org as i32,
+                                screen.width as u32,
+                                25,
+                                0,
+                                dd,
+                                CopyFromParent as u32,
+                                &mut dv,
+                                CWOverrideRedirect | CWBackPixmap | CWEventMask,
+                                &mut wa,
+                            );
+                            map_window(app.environment.window_system.display, win);
+                            raise_window(app.environment.window_system.display, win);
+                            set_class_hints(app.environment.window_system.display, win, &mut ch);
+                            win
+                        },
+                    }),
+                    BarVariant::None => None,
+                    BarVariant::External => None,
+                }
+        }
+        for _ in screens_amount..n {
+            let lsw = app
+                .environment
+                .window_system
+                .screens
+                .pop()
+                .unwrap()
+                .workspaces;
+            for (index, workspace) in lsw.into_iter().enumerate() {
+                app.environment.window_system.screens[0].workspaces[index]
+                    .clients
+                    .extend(workspace.clients);
+            }
+        }
+        arrange(app);
+    }
+}
+
+fn client_message(app: &mut ApplicationContainer, ev: Event) {
+    let c = ev.client.unwrap();
+    if let Some(cc) = find_window_indexes(app, c.window) {
+        let cc = &mut app.environment.window_system.screens[cc.0].workspaces[cc.1].clients[cc.2];
+        log!("|- Got `message`");
+        log!("   |- From: `{}`", &cc.window_name);
+        if c.message_type == app.environment.window_system.atoms.net_wm_state {
+            log!("   |- Type: `window state`");
+            if c.data.get_long(1) as u64 == app.environment.window_system.atoms.net_wm_fullscreen
+                || c.data.get_long(2) as u64
+                    == app.environment.window_system.atoms.net_wm_fullscreen
+            {
+                let sf = c.data.get_long(0) == 1 || c.data.get_long(0) == 2 && cc.fullscreen;
+                if sf && !cc.fullscreen {
+                    change_property(
+                        app.environment.window_system.display,
+                        c.window,
+                        app.environment.window_system.atoms.net_wm_state,
+                        XA_ATOM,
+                        32,
+                        PropModeReplace,
+                        &mut app.environment.window_system.atoms.net_wm_fullscreen as *mut u64
+                            as *mut u8,
+                        1,
+                    );
+                    cc.fullscreen = true;
+                    arrange(app);
+                } else if !sf && cc.fullscreen {
+                    change_property(
+                        app.environment.window_system.display,
+                        c.window,
+                        app.environment.window_system.atoms.net_wm_state,
+                        XA_ATOM,
+                        32,
+                        PropModeReplace,
+                        std::ptr::null_mut::<u8>(),
+                        0,
+                    );
+                    cc.fullscreen = false;
+                    arrange(app);
+                }
+            }
+        }
+    }
+}
+
+fn run(app: &mut ApplicationContainer) {
+    log!("|===== run =====");
+    while app.environment.window_system.running {
+        let ev = next_event(app.environment.window_system.display);
+        match ev.type_ {
+            x11::xlib::KeyPress => key_press(app, ev),
+            x11::xlib::MapRequest => map_request(app, ev),
+            x11::xlib::EnterNotify => enter_notify(app, ev),
+            x11::xlib::DestroyNotify => destroy_notify(app, ev),
+            x11::xlib::UnmapNotify => unmap_notify(app, ev),
+            x11::xlib::MotionNotify => motion_notify(app, ev),
+            x11::xlib::PropertyNotify => property_notify(app, ev),
+            x11::xlib::ConfigureNotify => configure_notify(app, ev),
+            x11::xlib::ClientMessage => client_message(app, ev),
+            _ => {}
+        };
+    }
+}
+
 fn cleanup(_app: &mut ApplicationContainer) {}
 
-/// Rust default entry function
-fn main() {
-    // Set locale for proper work with unicode symbols
-    // For example: getting names of windows
-    set_locale(LC_CTYPE, "");
-
-    // Disable zombie processes
+fn no_zombies() {
     unsafe {
         let sa = nix::sys::signal::SigAction::new(
             nix::sys::signal::SigHandler::SigIgn,
@@ -1713,35 +1787,17 @@ fn main() {
         );
         let _ = nix::sys::signal::sigaction(nix::sys::signal::Signal::SIGCHLD, &sa);
     }
+}
 
-    // Run autostart
-    // Command::new("/usr/bin/sh")
-    //     .arg(format!("{}/{}", std::env!("HOME"), ".rtde/autostart.sh"))
-    //     .status()
-    //     .unwrap();
-
-    // Init `app` container
-    // App container consists of all data needed for WM to function
+fn main() {
+    set_locale(LC_CTYPE, "");
+    no_zombies();
     let mut app: ApplicationContainer = setup();
-
     spawn(
         &mut app,
-        &format!(
-            "{} {}/{}",
-            "/usr/bin/sh",
-            std::env!("HOME"),
-            ".rtde/autostart.sh"
-        ),
+        format!("{}/.rtde/autostart.sh", std::env!("HOME")),
     );
-
-    // Scan for existing windows
     scan(&mut app);
-
-    // Start main loop
-    // Event processing, and all stuff occur here
     run(&mut app);
-
-    // Gracefully exit
-    // Close all connections, dump data, exit
     cleanup(&mut app);
 }
