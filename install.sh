@@ -9,6 +9,7 @@ if ! command -v cargo &> /dev/null
 then
   echo ">>> Installing"
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  source "$HOME/.cargo/env"
 else
   echo ">>> Rust is present"
 fi 
