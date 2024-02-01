@@ -130,17 +130,17 @@ fn setup() -> ApplicationContainer {
                         alpha: 255,
                         red: 64,
                         green: 64,
-                        blue: 64,
+                        blue: 128,
                     },
                     active_border_color: Color {
                         alpha: 255,
-                        red: 64,
-                        green: 192,
-                        blue: 64,
+                        red: 126,
+                        green: 36,
+                        blue: 135,
                     },
                 },
                 key_actions: Vec::new(),
-                bar: BarVariant::Bar(Bar { height: 42 }),
+                bar: BarVariant::Bar(Bar { height: 32 }),
             },
             window_system: WindowSystemContainer {
                 display,
@@ -178,123 +178,125 @@ fn setup() -> ApplicationContainer {
 
     // TODO: Load actions
     let actions: Vec<KeyAction> = {
-        let mut a = vec![
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_Return,
-                result: ActionResult::Spawn("kitty".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_e,
-                result: ActionResult::Spawn("thunar".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_p,
-                result: ActionResult::Spawn("dmenu_run".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioRaiseVolume,
-                result: ActionResult::Spawn("/usr/local/bin/volumeup".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioLowerVolume,
-                result: ActionResult::Spawn("/usr/local/bin/volumedown".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioMute,
-                result: ActionResult::Spawn("/usr/local/bin/volumemute".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioPlay,
-                result: ActionResult::Spawn("playerctl play-pause".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioNext,
-                result: ActionResult::Spawn("playerctl next".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioPrev,
-                result: ActionResult::Spawn("playerctl previous".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_q,
-                result: ActionResult::Quit,
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_c,
-                result: ActionResult::KillClient,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_w,
-                result: ActionResult::DumpInfo,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_comma,
-                result: ActionResult::FocusOnScreen(ScreenSwitching::Previous),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_period,
-                result: ActionResult::FocusOnScreen(ScreenSwitching::Next),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_comma,
-                result: ActionResult::MoveToScreen(ScreenSwitching::Previous),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_period,
-                result: ActionResult::MoveToScreen(ScreenSwitching::Next),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_i,
-                result: ActionResult::UpdateMasterCapacity(1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_d,
-                result: ActionResult::UpdateMasterCapacity(-1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_l,
-                result: ActionResult::UpdateMasterWidth(0.05),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_h,
-                result: ActionResult::UpdateMasterWidth(-0.05),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_space,
-                result: ActionResult::ToggleFloat,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_j,
-                result: ActionResult::CycleStack(-1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_k,
-                result: ActionResult::CycleStack(1),
-            },
-        ];
+        let mut a =
+            vec![
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_Return,
+                    result: ActionResult::Spawn("kitty".to_string()),
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_e,
+                    result: ActionResult::Spawn("thunar".to_string()),
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_p,
+                    result: ActionResult::Spawn("dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b
+            ".to_string()),
+                },
+                KeyAction {
+                    modifier: 0,
+                    keysym: XF86XK_AudioRaiseVolume,
+                    result: ActionResult::Spawn("/usr/local/bin/volumeup".to_string()),
+                },
+                KeyAction {
+                    modifier: 0,
+                    keysym: XF86XK_AudioLowerVolume,
+                    result: ActionResult::Spawn("/usr/local/bin/volumedown".to_string()),
+                },
+                KeyAction {
+                    modifier: 0,
+                    keysym: XF86XK_AudioMute,
+                    result: ActionResult::Spawn("/usr/local/bin/volumemute".to_string()),
+                },
+                KeyAction {
+                    modifier: 0,
+                    keysym: XF86XK_AudioPlay,
+                    result: ActionResult::Spawn("playerctl play-pause".to_string()),
+                },
+                KeyAction {
+                    modifier: 0,
+                    keysym: XF86XK_AudioNext,
+                    result: ActionResult::Spawn("playerctl next".to_string()),
+                },
+                KeyAction {
+                    modifier: 0,
+                    keysym: XF86XK_AudioPrev,
+                    result: ActionResult::Spawn("playerctl previous".to_string()),
+                },
+                KeyAction {
+                    modifier: ModKey | ShiftMask,
+                    keysym: XK_q,
+                    result: ActionResult::Quit,
+                },
+                KeyAction {
+                    modifier: ModKey | ShiftMask,
+                    keysym: XK_c,
+                    result: ActionResult::KillClient,
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_w,
+                    result: ActionResult::DumpInfo,
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_comma,
+                    result: ActionResult::FocusOnScreen(ScreenSwitching::Previous),
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_period,
+                    result: ActionResult::FocusOnScreen(ScreenSwitching::Next),
+                },
+                KeyAction {
+                    modifier: ModKey | ShiftMask,
+                    keysym: XK_comma,
+                    result: ActionResult::MoveToScreen(ScreenSwitching::Previous),
+                },
+                KeyAction {
+                    modifier: ModKey | ShiftMask,
+                    keysym: XK_period,
+                    result: ActionResult::MoveToScreen(ScreenSwitching::Next),
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_i,
+                    result: ActionResult::UpdateMasterCapacity(1),
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_d,
+                    result: ActionResult::UpdateMasterCapacity(-1),
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_l,
+                    result: ActionResult::UpdateMasterWidth(0.05),
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_h,
+                    result: ActionResult::UpdateMasterWidth(-0.05),
+                },
+                KeyAction {
+                    modifier: ModKey | ShiftMask,
+                    keysym: XK_space,
+                    result: ActionResult::ToggleFloat,
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_j,
+                    result: ActionResult::CycleStack(-1),
+                },
+                KeyAction {
+                    modifier: ModKey,
+                    keysym: XK_k,
+                    result: ActionResult::CycleStack(1),
+                },
+            ];
 
         for (index, key) in vec![XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
             .iter()
