@@ -85,6 +85,9 @@ pub struct Atoms {
     pub net_client_list: u64,
     pub net_number_of_desktops: u64,
     pub net_current_desktop: u64,
+    pub net_wm_desktop: u64,
+    pub net_desktop_names: u64,
+    pub net_desktop_viewport: u64,
 }
 
 /// Stores all states required by WM to operate

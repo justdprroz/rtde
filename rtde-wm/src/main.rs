@@ -8,11 +8,15 @@
 
 mod get_default;
 mod grab;
+use std::ffi::CStr;
+use std::ffi::CString;
+use std::mem;
 use std::mem::size_of;
 use std::ptr::null_mut;
 use std::vec;
 
 use grab::grab_key;
+use libc::CS;
 use x11::xlib::XA_CARDINAL;
 use x11::xlib::XA_INTEGER;
 
@@ -167,6 +171,9 @@ fn setup() -> ApplicationContainer {
                     net_client_list: 0,
                     net_number_of_desktops: 0,
                     net_current_desktop: 0,
+                    net_desktop_viewport: 0,
+                    net_desktop_names: 0,
+                    net_wm_desktop: 0,
                 },
             },
         },
@@ -370,6 +377,9 @@ fn setup() -> ApplicationContainer {
         net_client_list: intern_atom(dpy, "_NET_CLIENT_LIST".to_string(), false),
         net_number_of_desktops: intern_atom(dpy, "_NET_NUMBER_OF_DESKTOPS".to_string(), false),
         net_current_desktop: intern_atom(dpy, "_NET_CURRENT_DESKTOP".to_string(), false),
+        net_desktop_names: intern_atom(dpy, "_NET_DESKTOP_NAMES".to_string(), false),
+        net_desktop_viewport: intern_atom(dpy, "_NET_DESKTOP_VIEWPORT".to_string(), false),
+        net_wm_desktop: intern_atom(dpy, "_NET_WM_DESKTOP".to_string(), false),
     };
 
     log!("|- Initialized `Variables`");
@@ -421,7 +431,9 @@ fn setup() -> ApplicationContainer {
         &mut wmchckwin as *mut u64 as *mut u8,
         1,
     );
-    let mut numbers: u64 = 10;
+
+    // Some EWMH crap
+    let mut numbers: u64 = 20;
     change_property(
         dpy,
         app.environment.window_system.root_win,
@@ -431,6 +443,53 @@ fn setup() -> ApplicationContainer {
         PropModeReplace,
         &mut numbers as *mut u64 as *mut u8,
         1,
+    );
+
+    let mut ptrs = vec![];
+    let mut size = 0;
+
+    for _ in 0..2 {
+        for name in 1..=10 {
+            let mut name = CString::new(format!("{name}"))
+                .unwrap()
+                .into_bytes_with_nul();
+            size += name.len();
+            ptrs.append(&mut name);
+        }
+    }
+
+    change_property(
+        dpy,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_desktop_names,
+        utf8string,
+        8,
+        PropModeReplace,
+        ptrs.as_mut_ptr(),
+        size as i32,
+    );
+
+    let mut viewports: Vec<u64> = vec![];
+
+    for _ in 0..10 {
+        viewports.push(0);
+        viewports.push(0);
+    }
+
+    for _ in 0..10 {
+        viewports.push(1920);
+        viewports.push(0);
+    }
+
+    change_property(
+        dpy,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_desktop_viewport,
+        XA_CARDINAL,
+        32,
+        PropModeReplace,
+        viewports.as_mut_ptr() as *mut u8,
+        viewports.len() as i32,
     );
 
     // Init screens
@@ -520,6 +579,8 @@ fn setup() -> ApplicationContainer {
         ws.atoms.net_wm_state,
         ws.atoms.net_number_of_desktops,
         ws.atoms.net_current_desktop,
+        ws.atoms.net_desktop_viewport,
+        ws.atoms.net_desktop_names,
     ];
 
     change_property(
@@ -789,6 +850,21 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
             &win as *const u64 as *mut u8,
             1,
         );
+
+        let cur_workspace: usize = app.environment.window_system.current_workspace
+            + app.environment.window_system.current_screen * 10;
+
+        change_property(
+            app.environment.window_system.display,
+            win,
+            app.environment.window_system.atoms.net_wm_desktop,
+            XA_CARDINAL,
+            32,
+            PropModeReplace,
+            &cur_workspace as *const usize as *mut u8,
+            1,
+        );
+
         // set border size
         let mut wc = x11::xlib::XWindowChanges {
             x: 0,
@@ -1249,6 +1325,21 @@ fn move_to_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
             cc.window_id,
             argb_to_int(app.environment.config.visuals.normal_border_color),
         );
+
+        let cur_workspace: usize =
+            app.environment.window_system.screens[cs].current_workspace + cs * 10;
+
+        change_property(
+            app.environment.window_system.display,
+            cc.window_id,
+            app.environment.window_system.atoms.net_wm_desktop,
+            XA_CARDINAL,
+            32,
+            PropModeReplace,
+            &cur_workspace as *const usize as *mut u8,
+            1,
+        );
+
         // Update client tracker on current screen
         shift_current_client(app, None, None);
         // Get workspace tracker(borrow checker is really mad at me)
@@ -1310,6 +1401,18 @@ fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
             argb_to_int(app.environment.config.visuals.active_border_color),
         );
     }
+    let w: u64 =
+        cs as u64 * 10 + app.environment.window_system.screens[cs].current_workspace as u64;
+    change_property(
+        app.environment.window_system.display,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_current_desktop,
+        XA_CARDINAL,
+        32,
+        PropModeReplace,
+        &w as *const u64 as *mut u64 as *mut u8,
+        1,
+    );
 }
 
 fn move_to_workspace(app: &mut ApplicationContainer, n: u64) {
@@ -1329,6 +1432,20 @@ fn move_to_workspace(app: &mut ApplicationContainer, n: u64) {
                 cc.window_id,
                 argb_to_int(app.environment.config.visuals.normal_border_color),
             );
+            let cur_workspace: usize =
+                n as usize + app.environment.window_system.current_screen * 10;
+
+            change_property(
+                app.environment.window_system.display,
+                cc.window_id,
+                app.environment.window_system.atoms.net_wm_desktop,
+                XA_CARDINAL,
+                32,
+                PropModeReplace,
+                &cur_workspace as *const usize as *mut u8,
+                1,
+            );
+
             // Update current workspace layout
             arrange(app);
             // Move window out of view
@@ -1370,6 +1487,9 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64) {
         app.environment.window_system.current_workspace = n as usize;
         app.environment.window_system.screens[app.environment.window_system.current_screen]
             .current_workspace = n as usize;
+
+        let w = n + app.environment.window_system.current_screen as u64 * 10;
+
         change_property(
             app.environment.window_system.display,
             app.environment.window_system.root_win,
@@ -1377,7 +1497,7 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64) {
             XA_CARDINAL,
             32,
             PropModeReplace,
-            &n as *const u64 as *mut u64 as *mut u8,
+            &w as *const u64 as *mut u64 as *mut u8,
             1,
         );
         // Update current client
@@ -1534,6 +1654,20 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
             RevertToPointerRoot,
             CurrentTime,
         );
+
+        let w = app.environment.window_system.current_workspace
+            + app.environment.window_system.current_screen * 10;
+
+        change_property(
+            app.environment.window_system.display,
+            app.environment.window_system.root_win,
+            app.environment.window_system.atoms.net_current_desktop,
+            XA_CARDINAL,
+            32,
+            PropModeReplace,
+            &w as *const usize as *mut usize as *mut u8,
+            1,
+        );
     } else {
         let ws = &mut app.environment.window_system;
 
@@ -1583,6 +1717,19 @@ fn motion_notify(app: &mut ApplicationContainer, ev: Event) {
                 [app.environment.window_system.current_screen]
                 .workspaces[app.environment.window_system.current_workspace]
                 .current_client;
+            let w = app.environment.window_system.current_workspace
+                + app.environment.window_system.current_screen * 10;
+
+            change_property(
+                app.environment.window_system.display,
+                app.environment.window_system.root_win,
+                app.environment.window_system.atoms.net_current_desktop,
+                XA_CARDINAL,
+                32,
+                PropModeReplace,
+                &w as *const usize as *mut usize as *mut u8,
+                1,
+            );
         }
     }
 }
