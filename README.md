@@ -14,7 +14,8 @@
 ## Installation
 1. Install Rust https://rustup.rs/
 2. Install Xlib using your package manager
-3. Run ```install.sh```. It will build everything needed and will place it to ```/usr/local/bin``` 
+3. Clone this repo using ```git clone --recurse-submodules -b wmassubmodule git@gitlab.justdprroz.ru:rtde/rtde.git```
+3. Run ```install.sh```. It will build everything needed and will place it to ```~/.cargo/bin``` 
 4. Add ```exec rust-wm``` to your ```~/.xinitrc```
 5. Further configuration is up to you!
 
