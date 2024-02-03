@@ -839,6 +839,17 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         c.floating = c.fixed || trans != 0;
     } else {
         log!("   |- Floating");
+        let s =
+            &app.environment.window_system.screens[app.environment.window_system.current_screen];
+        let sw = s.width as i32;
+        let sh = s.height as i32;
+        let sbh = match &s.status_bar {
+            Some(s) => s.height,
+            None => 0,
+        } as i32;
+
+        c.x = (sw - (c.w as i32)) / 2;
+        c.y = (sh - sbh - (c.h as i32)) / 2;
     }
 
     // floating windows are moved to centre of screen?
@@ -1025,7 +1036,7 @@ fn arrange(app: &mut ApplicationContainer) {
                 set_window_border_width(
                     ws.display,
                     client.window_id,
-                    if stack_size > 1 {
+                    if stack_size > 1 || client.floating {
                         app.environment.config.visuals.border_size as u32
                     } else {
                         0
@@ -1039,6 +1050,9 @@ fn arrange(app: &mut ApplicationContainer) {
                     client.w,
                     client.h,
                 );
+                if client.floating {
+                    raise_window(ws.display, client.window_id);
+                }
             };
         }
     }
@@ -1938,6 +1952,12 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
     log!("|- Got `ConfigureRequest` from {}", cr.window);
 
     if let Some((s, w, c)) = find_window_indexes(app, cr.window) {
+        let sw = app.environment.window_system.screens[s].width as i32;
+        let sh = app.environment.window_system.screens[s].height as i32;
+        let sbh = match &app.environment.window_system.screens[s].status_bar {
+            Some(s) => s.height,
+            None => 0,
+        } as i32;
         let client = &mut app.environment.window_system.screens[s].workspaces[w].clients[c];
         if client.floating {
             if (cr.value_mask & CWWidth as u64) != 0 {
@@ -1952,6 +1972,10 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
             if (cr.value_mask & CWY as u64) != 0 {
                 client.y = cr.y;
             }
+
+            client.x = (sw - (client.w as i32)) / 2;
+            client.y = (sh - sbh - (client.h as i32)) / 2;
+
             move_resize_window(
                 app.environment.window_system.display,
                 client.window_id,
