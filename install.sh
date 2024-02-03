@@ -1,7 +1,7 @@
 # Installing base packages
 echo ">>> Installing packages"
 sudo pacman --needed --noconfirm -S \
-  xorg xorg-xinit nvidia kitty picom polybar dmenu ttf-cascadia-code \
+  xorg xorg-xinit nvidia kitty picom polybar dmenu ttf-cascadia-code scrot \
 
 # Ensure cargo is installed
 echo ">>> Checking rust installation"
@@ -35,6 +35,8 @@ touch ~/.rtde/err.log
 # create autostart config
 cp autostart.sh ~/.rtde/autostart.sh
 chmod +x ~/.rtde/autostart.sh
+
+mkdir ~/Pictures/screenshots -p
 
 # Backup xinitrc and create new
 echo ">>> Updating xinitrc"
