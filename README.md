@@ -14,7 +14,7 @@
 ## Installation
 1. Install Rust https://rustup.rs/
 2. Install Xlib using your package manager
-3. Run ```install.sh```. It will build everything needed and will place it to ```/usr/local/bin``` 
+3. Run ```cargo install --debug --path .```. Window manager executable will be installed in ```~/.cargo/bin```
 4. Add ```exec rust-wm``` to your ```~/.xinitrc```
 5. Further configuration is up to you!
 
