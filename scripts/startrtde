@@ -1,0 +1,4 @@
+while true
+do
+	rtwm > ~/.rtde/out.log 2> ~/.rtde/err.log
+done

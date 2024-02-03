@@ -1,6 +1,6 @@
 # Installing base packages
 echo ">>> Installing packages"
-sudo pacman --noconfirm -S \
+sudo pacman --needed --noconfirm -S \
   xorg xorg-xinit nvidia kitty picom polybar dmenu ttf-cascadia-code \
 
 # Ensure cargo is installed
@@ -16,14 +16,15 @@ fi
 
 # Install and configure rtde
 echo ">>> Installing rtwm"
-cd rtde-wm
-cargo build
-sudo cp -f ./target/debug/rtwm /usr/local/bin
+# cd rtde-wm
+# cargo build
+# sudo cp -f ./target/debug/rtwm /usr/local/bin
+cargo install --debug --path rtde-wm
+
 
 # Copy help script 
 echo ">>> Copying scripts"
-cd ..
-sudo cp ./scripts/* /usr/local/bin/ 
+sudo cp ./scripts/* ~/.cargo/bin/ 
 
 # create rtde dir and add autostart file
 echo ">>> Creating config directory"
@@ -32,15 +33,12 @@ touch ~/.rtde/out.log
 touch ~/.rtde/err.log
 
 # create autostart config
-echo -e '#!/bin/bash
-picom &
-polybar &
-' > ~/.rtde/autostart.sh
+cp autostart.sh ~/.rtde/autostart.sh
 chmod +x ~/.rtde/autostart.sh
 
 # Backup xinitrc and create new
 echo ">>> Updating xinitrc"
 mv ~/.xinitrc ~/.xinitrc.old
-echo -e "exec rtwm" > ~/.xinitrc
+echo -e "exec startrtde" > ~/.xinitrc
 
 

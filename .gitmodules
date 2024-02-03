@@ -1,0 +1,3 @@
+[submodule "rtde-wm"]
+	path = rtde-wm
+	url = http://gitlab.justdprroz.ru/rtde/rtde-wm.git
