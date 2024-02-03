@@ -398,6 +398,8 @@ fn setup() -> ApplicationContainer {
         net_wm_desktop: intern_atom(dpy, "_NET_WM_DESKTOP".to_string(), false),
     };
 
+    log!("{:#?}", app.environment.window_system.atoms);
+
     log!("|- Initialized `Variables`");
 
     // Init supporting window
@@ -940,6 +942,20 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
             RevertToPointerRoot,
             CurrentTime,
         );
+
+        let data: [i64; 2] = [1, 0];
+
+        change_property(
+            app.environment.window_system.display,
+            win,
+            app.environment.window_system.atoms.wm_state,
+            app.environment.window_system.atoms.wm_state,
+            32,
+            PropModeReplace,
+            &data as *const [i64; 2] as *mut u8,
+            2,
+        );
+
         // Arrange current workspace
         arrange(app);
     }
@@ -1916,8 +1932,8 @@ fn client_message(app: &mut ApplicationContainer, ev: Event) {
     if let Some(cc) = find_window_indexes(app, c.window) {
         let cc = &mut app.environment.window_system.screens[cc.0].workspaces[cc.1].clients[cc.2];
         log!("   |- From: `{}`", &cc.window_name);
+        log!("      |- Type: `{}`", c.message_type);
         if c.message_type == app.environment.window_system.atoms.net_wm_state {
-            log!("   |- Type: `window state`");
             if c.data.get_long(1) as u64 == app.environment.window_system.atoms.net_wm_fullscreen
                 || c.data.get_long(2) as u64
                     == app.environment.window_system.atoms.net_wm_fullscreen
