@@ -8,17 +8,13 @@
 
 mod get_default;
 mod grab;
-use std::ffi::CStr;
 use std::ffi::CString;
-use std::mem;
 use std::mem::size_of;
 use std::ptr::null_mut;
 use std::vec;
 
 use grab::grab_key;
-use libc::CS;
 use x11::xlib::XA_CARDINAL;
-use x11::xlib::XA_INTEGER;
 
 // mod config;
 mod structs;
@@ -28,6 +24,15 @@ use crate::structs::Color;
 
 fn argb_to_int(c: Color) -> u64 {
     (c.alpha as u64) << 24 | (c.red as u64) << 16 | (c.green as u64) << 8 | (c.blue as u64)
+}
+
+fn vec_string_to_bytes(strings: Vec<String>) -> Vec<u8> {
+    let mut bytes: Vec<u8> = vec![];
+    for string in strings {
+        let mut b = CString::new(string).unwrap().into_bytes_with_nul();
+        bytes.append(&mut b);
+    }
+    bytes
 }
 
 use libc::LC_CTYPE;
@@ -206,17 +211,17 @@ fn setup() -> ApplicationContainer {
                 KeyAction {
                     modifier: 0,
                     keysym: XF86XK_AudioRaiseVolume,
-                    result: ActionResult::Spawn("/usr/local/bin/volumeup".to_string()),
+                    result: ActionResult::Spawn("volumeup".to_string()),
                 },
                 KeyAction {
                     modifier: 0,
                     keysym: XF86XK_AudioLowerVolume,
-                    result: ActionResult::Spawn("/usr/local/bin/volumedown".to_string()),
+                    result: ActionResult::Spawn("volumedown".to_string()),
                 },
                 KeyAction {
                     modifier: 0,
                     keysym: XF86XK_AudioMute,
-                    result: ActionResult::Spawn("/usr/local/bin/volumemute".to_string()),
+                    result: ActionResult::Spawn("volumemute".to_string()),
                 },
                 KeyAction {
                     modifier: 0,
@@ -433,131 +438,9 @@ fn setup() -> ApplicationContainer {
     );
 
     // Some EWMH crap
-    let mut numbers: u64 = 20;
-    change_property(
-        dpy,
-        app.environment.window_system.root_win,
-        app.environment.window_system.atoms.net_number_of_desktops,
-        XA_CARDINAL,
-        32,
-        PropModeReplace,
-        &mut numbers as *mut u64 as *mut u8,
-        1,
-    );
 
-    let mut ptrs = vec![];
-    let mut size = 0;
+    init_screens(&mut app);
 
-    for _ in 0..2 {
-        for name in 1..=10 {
-            let mut name = CString::new(format!("{name}"))
-                .unwrap()
-                .into_bytes_with_nul();
-            size += name.len();
-            ptrs.append(&mut name);
-        }
-    }
-
-    change_property(
-        dpy,
-        app.environment.window_system.root_win,
-        app.environment.window_system.atoms.net_desktop_names,
-        utf8string,
-        8,
-        PropModeReplace,
-        ptrs.as_mut_ptr(),
-        size as i32,
-    );
-
-    let mut viewports: Vec<u64> = vec![];
-
-    for _ in 0..10 {
-        viewports.push(0);
-        viewports.push(0);
-    }
-
-    for _ in 0..10 {
-        viewports.push(1920);
-        viewports.push(0);
-    }
-
-    change_property(
-        dpy,
-        app.environment.window_system.root_win,
-        app.environment.window_system.atoms.net_desktop_viewport,
-        XA_CARDINAL,
-        32,
-        PropModeReplace,
-        viewports.as_mut_ptr() as *mut u8,
-        viewports.len() as i32,
-    );
-
-    // Init screens
-    for screen in xinerama_query_screens(app.environment.window_system.display)
-        .expect("Running without xinerama is not supported (what da hail???)")
-    {
-        app.environment.window_system.screens.push(Screen {
-            number: screen.screen_number as i64,
-            x: screen.x_org as i64,
-            y: screen.y_org as i64,
-            width: screen.width as i64,
-            height: screen.height as i64,
-            workspaces: {
-                let mut wv = Vec::new();
-                for i in 0..10 {
-                    wv.push(Workspace {
-                        number: i,
-                        clients: Vec::new(),
-                        current_client: None,
-                        master_capacity: 1,
-                        master_width: 0.5,
-                    })
-                }
-                wv
-            },
-            current_workspace: 0,
-            status_bar: match &app.environment.config.bar {
-                BarVariant::Bar(bar) => Some(StatusBarContainer {
-                    height: bar.height,
-                    win: {
-                        let s = default_screen(app.environment.window_system.display);
-                        let dd = default_depth(app.environment.window_system.display, s);
-                        let mut dv = default_visual(app.environment.window_system.display, s);
-                        let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
-                        wa.override_redirect = 1;
-                        wa.background_pixmap = ParentRelative as u64;
-
-                        let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
-                        let mut ch = XClassHint {
-                            res_name: name.as_ptr() as *mut i8,
-                            res_class: name.as_ptr() as *mut i8,
-                        };
-                        eprintln!("created hints");
-                        let win = create_window(
-                            app.environment.window_system.display,
-                            app.environment.window_system.root_win,
-                            screen.x_org as i32,
-                            screen.y_org as i32,
-                            screen.width as u32,
-                            25,
-                            0,
-                            dd,
-                            CopyFromParent as u32,
-                            &mut dv,
-                            CWOverrideRedirect | CWBackPixmap | CWEventMask,
-                            &mut wa,
-                        );
-                        map_window(app.environment.window_system.display, win);
-                        raise_window(app.environment.window_system.display, win);
-                        set_class_hints(app.environment.window_system.display, win, &mut ch);
-                        win
-                    },
-                }),
-                BarVariant::None => None,
-                BarVariant::External => None,
-            },
-        })
-    }
     log!("{:#?}", &app.environment.window_system.screens);
     log!("|- Initialized xinerama `Screens` and nested `Workspaces`");
     // TODO: Init Api
@@ -620,6 +503,124 @@ fn setup() -> ApplicationContainer {
 
     // Return initialized container
     app
+}
+
+fn init_screens(app: &mut ApplicationContainer) {
+    let mut desktop_names = vec![];
+    let mut viewports: Vec<i64> = vec![];
+    let mut workspaces: u64 = 0;
+    // Init screens
+    for screen in xinerama_query_screens(app.environment.window_system.display)
+        .expect("Running without xinerama is not supported (what da hail???)")
+    {
+        app.environment.window_system.screens.push(Screen {
+            number: screen.screen_number as i64,
+            x: screen.x_org as i64,
+            y: screen.y_org as i64,
+            width: screen.width as i64,
+            height: screen.height as i64,
+            workspaces: {
+                let mut wv = Vec::new();
+                for i in 0..10 {
+                    wv.push(Workspace {
+                        number: i,
+                        clients: Vec::new(),
+                        current_client: None,
+                        master_capacity: 1,
+                        master_width: 0.5,
+                    });
+                    desktop_names.push(format!("{}", i + 1));
+                    viewports.push(screen.x_org as i64);
+                    viewports.push(screen.y_org as i64);
+                    workspaces += 1;
+                }
+                wv
+            },
+            current_workspace: 0,
+            status_bar: match &app.environment.config.bar {
+                BarVariant::Bar(bar) => Some(StatusBarContainer {
+                    height: bar.height,
+                    win: {
+                        let s = default_screen(app.environment.window_system.display);
+                        let dd = default_depth(app.environment.window_system.display, s);
+                        let mut dv = default_visual(app.environment.window_system.display, s);
+                        let mut wa: XSetWindowAttributes = get_default::xset_window_attributes();
+                        wa.override_redirect = 1;
+                        wa.background_pixmap = ParentRelative as u64;
+
+                        let name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+                        let mut ch = XClassHint {
+                            res_name: name.as_ptr() as *mut i8,
+                            res_class: name.as_ptr() as *mut i8,
+                        };
+                        eprintln!("created hints");
+                        let win = create_window(
+                            app.environment.window_system.display,
+                            app.environment.window_system.root_win,
+                            screen.x_org as i32,
+                            screen.y_org as i32,
+                            screen.width as u32,
+                            25,
+                            0,
+                            dd,
+                            CopyFromParent as u32,
+                            &mut dv,
+                            CWOverrideRedirect | CWBackPixmap | CWEventMask,
+                            &mut wa,
+                        );
+                        map_window(app.environment.window_system.display, win);
+                        raise_window(app.environment.window_system.display, win);
+                        set_class_hints(app.environment.window_system.display, win, &mut ch);
+                        win
+                    },
+                }),
+                BarVariant::None => None,
+                BarVariant::External => None,
+            },
+        })
+    }
+    let utf8string = intern_atom(
+        app.environment.window_system.display,
+        "UTF8_STRING".to_string(),
+        false,
+    );
+
+    // Set amount of workspaces
+    change_property(
+        app.environment.window_system.display,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_number_of_desktops,
+        XA_CARDINAL,
+        32,
+        PropModeReplace,
+        &mut workspaces as *mut u64 as *mut u8,
+        1,
+    );
+
+    // Set workspaces names
+    let mut bytes = vec_string_to_bytes(desktop_names);
+    change_property(
+        app.environment.window_system.display,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_desktop_names,
+        utf8string,
+        8,
+        PropModeReplace,
+        bytes.as_mut_ptr(),
+        bytes.len() as i32,
+    );
+
+    // Set workspaces viewports
+    change_property(
+        app.environment.window_system.display,
+        app.environment.window_system.root_win,
+        app.environment.window_system.atoms.net_desktop_viewport,
+        XA_CARDINAL,
+        32,
+        PropModeReplace,
+        viewports.as_mut_ptr() as *mut u8,
+        viewports.len() as i32,
+    );
 }
 
 /// Fetches clients that are already present
