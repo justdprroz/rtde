@@ -197,125 +197,129 @@ fn setup() -> ApplicationContainer {
 
     // TODO: Load actions
     let actions: Vec<KeyAction> = {
-        let mut a =
-            vec![
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_Return,
-                    result: ActionResult::Spawn("kitty".to_string()),
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_e,
-                    result: ActionResult::Spawn("thunar".to_string()),
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_p,
-                    result: ActionResult::Spawn("dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b
-            ".to_string()),
-                },
-                KeyAction {
-                    modifier: 0,
-                    keysym: XF86XK_AudioRaiseVolume,
-                    result: ActionResult::Spawn("volumeup".to_string()),
-                },
-                KeyAction {
-                    modifier: 0,
-                    keysym: XF86XK_AudioLowerVolume,
-                    result: ActionResult::Spawn("volumedown".to_string()),
-                },
-                KeyAction {
-                    modifier: 0,
-                    keysym: XF86XK_AudioMute,
-                    result: ActionResult::Spawn("volumemute".to_string()),
-                },
-                KeyAction {
-                    modifier: 0,
-                    keysym: XF86XK_AudioPlay,
-                    result: ActionResult::Spawn("playerctl play-pause".to_string()),
-                },
-                KeyAction {
-                    modifier: 0,
-                    keysym: XF86XK_AudioNext,
-                    result: ActionResult::Spawn("playerctl next".to_string()),
-                },
-                KeyAction {
-                    modifier: 0,
-                    keysym: XF86XK_AudioPrev,
-                    result: ActionResult::Spawn("playerctl previous".to_string()),
-                },
-                KeyAction {
-                    modifier: ModKey | ShiftMask,
-                    keysym: XK_q,
-                    result: ActionResult::Quit,
-                },
-                KeyAction {
-                    modifier: ModKey | ShiftMask,
-                    keysym: XK_c,
-                    result: ActionResult::KillClient,
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_w,
-                    result: ActionResult::DumpInfo,
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_comma,
-                    result: ActionResult::FocusOnScreen(ScreenSwitching::Previous),
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_period,
-                    result: ActionResult::FocusOnScreen(ScreenSwitching::Next),
-                },
-                KeyAction {
-                    modifier: ModKey | ShiftMask,
-                    keysym: XK_comma,
-                    result: ActionResult::MoveToScreen(ScreenSwitching::Previous),
-                },
-                KeyAction {
-                    modifier: ModKey | ShiftMask,
-                    keysym: XK_period,
-                    result: ActionResult::MoveToScreen(ScreenSwitching::Next),
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_i,
-                    result: ActionResult::UpdateMasterCapacity(1),
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_d,
-                    result: ActionResult::UpdateMasterCapacity(-1),
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_l,
-                    result: ActionResult::UpdateMasterWidth(0.05),
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_h,
-                    result: ActionResult::UpdateMasterWidth(-0.05),
-                },
-                KeyAction {
-                    modifier: ModKey | ShiftMask,
-                    keysym: XK_space,
-                    result: ActionResult::ToggleFloat,
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_j,
-                    result: ActionResult::CycleStack(-1),
-                },
-                KeyAction {
-                    modifier: ModKey,
-                    keysym: XK_k,
-                    result: ActionResult::CycleStack(1),
-                },
-            ];
+        let mut a = vec![
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_Return,
+                result: ActionResult::Spawn("kitty".to_string()),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_e,
+                result: ActionResult::Spawn("thunar".to_string()),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_p,
+                result: ActionResult::Spawn("dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b
+        ".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioRaiseVolume,
+                result: ActionResult::Spawn("volumeup".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioLowerVolume,
+                result: ActionResult::Spawn("volumedown".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioMute,
+                result: ActionResult::Spawn("volumemute".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioPlay,
+                result: ActionResult::Spawn("playerctl play-pause".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioNext,
+                result: ActionResult::Spawn("playerctl next".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioPrev,
+                result: ActionResult::Spawn("playerctl previous".to_string()),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_s,
+                result: ActionResult::Spawn("screenshot".to_string()),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_q,
+                result: ActionResult::Quit,
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_c,
+                result: ActionResult::KillClient,
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_w,
+                result: ActionResult::DumpInfo,
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_comma,
+                result: ActionResult::FocusOnScreen(ScreenSwitching::Previous),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_period,
+                result: ActionResult::FocusOnScreen(ScreenSwitching::Next),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_comma,
+                result: ActionResult::MoveToScreen(ScreenSwitching::Previous),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_period,
+                result: ActionResult::MoveToScreen(ScreenSwitching::Next),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_i,
+                result: ActionResult::UpdateMasterCapacity(1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_d,
+                result: ActionResult::UpdateMasterCapacity(-1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_l,
+                result: ActionResult::UpdateMasterWidth(0.05),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_h,
+                result: ActionResult::UpdateMasterWidth(-0.05),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_space,
+                result: ActionResult::ToggleFloat,
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_j,
+                result: ActionResult::CycleStack(-1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_k,
+                result: ActionResult::CycleStack(1),
+            },
+        ];
 
         for (index, key) in vec![XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
             .iter()
@@ -1396,17 +1400,7 @@ fn move_to_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
     }
 }
 
-fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
-    // Get current screen
-    let mut cs = app.environment.window_system.current_screen;
-    // Update it
-    cs = match d {
-        ScreenSwitching::Next => (cs + 1) % app.environment.window_system.screens.len(),
-        ScreenSwitching::Previous => {
-            (cs + app.environment.window_system.screens.len() - 1)
-                % app.environment.window_system.screens.len()
-        }
-    };
+fn focus_on_screen_index(app: &mut ApplicationContainer, n: usize) {
     if let Some(cw) = get_current_client_id(app) {
         set_window_border(
             app.environment.window_system.display,
@@ -1415,7 +1409,7 @@ fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
         );
     }
     // Change trackers
-    app.environment.window_system.current_screen = cs;
+    app.environment.window_system.current_screen = n;
     app.environment.window_system.current_workspace = app.environment.window_system.screens
         [app.environment.window_system.current_screen]
         .current_workspace;
@@ -1444,8 +1438,7 @@ fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
             argb_to_int(app.environment.config.visuals.active_border_color),
         );
     }
-    let w: u64 =
-        cs as u64 * 10 + app.environment.window_system.screens[cs].current_workspace as u64;
+    let w: u64 = n as u64 * 10 + app.environment.window_system.screens[n].current_workspace as u64;
     change_property(
         app.environment.window_system.display,
         app.environment.window_system.root_win,
@@ -1456,6 +1449,20 @@ fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
         &w as *const u64 as *mut u64 as *mut u8,
         1,
     );
+}
+
+fn focus_on_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
+    // Get current screen
+    let mut cs = app.environment.window_system.current_screen;
+    // Update it
+    cs = match d {
+        ScreenSwitching::Next => (cs + 1) % app.environment.window_system.screens.len(),
+        ScreenSwitching::Previous => {
+            (cs + app.environment.window_system.screens.len() - 1)
+                % app.environment.window_system.screens.len()
+        }
+    };
+    focus_on_screen_index(app, cs);
 }
 
 fn move_to_workspace(app: &mut ApplicationContainer, n: u64) {
@@ -1513,6 +1520,8 @@ fn move_to_workspace(app: &mut ApplicationContainer, n: u64) {
 }
 
 fn focus_on_workspace(app: &mut ApplicationContainer, n: u64) {
+    focus_on_screen_index(app, n as usize / 10);
+    let n = n % 10;
     log!("   |- Got `FocusOnWorkspace` Action");
     // Check is focusing on another workspace
     if n as usize != app.environment.window_system.current_workspace {
@@ -1903,9 +1912,9 @@ fn configure_notify(app: &mut ApplicationContainer, ev: Event) {
 
 fn client_message(app: &mut ApplicationContainer, ev: Event) {
     let c = ev.client.unwrap();
+    log!("|- Got `message`");
     if let Some(cc) = find_window_indexes(app, c.window) {
         let cc = &mut app.environment.window_system.screens[cc.0].workspaces[cc.1].clients[cc.2];
-        log!("|- Got `message`");
         log!("   |- From: `{}`", &cc.window_name);
         if c.message_type == app.environment.window_system.atoms.net_wm_state {
             log!("   |- Type: `window state`");
@@ -1944,6 +1953,11 @@ fn client_message(app: &mut ApplicationContainer, ev: Event) {
                 }
             }
         }
+    }
+    if c.message_type == app.environment.window_system.atoms.net_current_desktop {
+        log!("   |- Got `Focus Workspace`");
+        log!("      |- {:#?}", c.data);
+        focus_on_workspace(app, c.data.get_long(0) as u64);
     }
 }
 
