@@ -14,6 +14,13 @@ use std::ptr::null_mut;
 use std::vec;
 
 use grab::grab_key;
+use x11::xlib::CWHeight;
+use x11::xlib::CWWidth;
+use x11::xlib::PBaseSize;
+use x11::xlib::PPosition;
+use x11::xlib::PSize;
+use x11::xlib::CWX;
+use x11::xlib::CWY;
 use x11::xlib::XA_CARDINAL;
 
 // mod config;
@@ -761,31 +768,51 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     // Get window default size hints
     log!("   |- Getting default sizes");
     if let Some((sh, _)) = get_wm_normal_hints(app.environment.window_system.display, win) {
+        println!("{:#?}", &sh);
+        // Get Max Sizes
         if (sh.flags & PMaxSize) != 0 {
             c.maxw = sh.max_width;
             c.maxh = sh.max_height;
             log!(
-                "      |- Setting max sizes to `{}, {}` `(width, height)`",
+                "      |- Setting max size to `{}, {}` `(width, height)`",
                 sh.max_width,
                 sh.max_height
             );
         } else {
             c.maxw = 0;
             c.maxh = 0;
-            log!("      |- Error getting max sizes. Falling to default `(0, 0)`");
         }
+
+        // Get Min Sizes
         if (sh.flags & PMinSize) != 0 {
             c.minw = sh.min_width;
             c.minh = sh.min_height;
             log!(
-                "      |- Setting min sizes to `{}, {}` `(width, height)`",
+                "      |- Setting min size to `{}, {}` `(width, height)`",
                 sh.min_width,
                 sh.min_height
             );
         } else {
             c.minw = 0;
             c.minh = 0;
-            log!("      |- Error getting min sizes. Falling to default `(0, 0)`");
+        }
+
+        // Get Base Sizes
+        if (sh.flags & PBaseSize) != 0 {
+            c.w = sh.base_width as u32;
+            c.h = sh.base_height as u32;
+            log!(
+                "      |- Setting size to `{}, {}` `(width, height)`",
+                sh.base_width,
+                sh.base_height
+            );
+        }
+
+        // Get Base position
+        if (sh.flags & PPosition) != 0 {
+            c.x = sh.x;
+            c.y = sh.y;
+            log!("      |- Setting position to `{}, {}` `(x, y)`", sh.x, sh.y);
         }
     } else {
         log!("   |- Cant fetch normal hints, setting everything to 0");
@@ -1116,6 +1143,7 @@ fn send_atom(app: &mut ApplicationContainer, win: u64, e: x11::xlib::Atom) -> bo
                     unmap: None,
                     property: None,
                     configure: None,
+                    configure_request: None,
                     client: Some(x11::xlib::XClientMessageEvent {
                         type_: ClientMessage,
                         serial: 0,
@@ -1752,7 +1780,7 @@ fn property_notify(app: &mut ApplicationContainer, ev: Event) {
 
 fn configure_notify(app: &mut ApplicationContainer, ev: Event) {
     let c = ev.configure.unwrap();
-    log!("|- Got ConfigureNotify");
+    log!("|- Got ConfigureNotify for {}", c.window);
     if c.window == app.environment.window_system.root_win {
         let n = app.environment.window_system.screens.len();
         let screens = xinerama_query_screens(app.environment.window_system.display)
@@ -1905,10 +1933,42 @@ fn client_message(app: &mut ApplicationContainer, ev: Event) {
     }
 }
 
+fn configure_request(app: &mut ApplicationContainer, ev: Event) {
+    let cr = ev.configure_request.unwrap();
+    log!("|- Got `ConfigureRequest` from {}", cr.window);
+
+    if let Some((s, w, c)) = find_window_indexes(app, cr.window) {
+        let client = &mut app.environment.window_system.screens[s].workspaces[w].clients[c];
+        if client.floating {
+            if (cr.value_mask & CWWidth as u64) != 0 {
+                client.w = cr.width as u32;
+            }
+            if (cr.value_mask & CWHeight as u64) != 0 {
+                client.h = cr.height as u32;
+            }
+            if (cr.value_mask & CWX as u64) != 0 {
+                client.x = cr.x;
+            }
+            if (cr.value_mask & CWY as u64) != 0 {
+                client.y = cr.y;
+            }
+            move_resize_window(
+                app.environment.window_system.display,
+                client.window_id,
+                client.x,
+                client.y,
+                client.w,
+                client.h,
+            );
+        }
+    }
+}
+
 fn run(app: &mut ApplicationContainer) {
     log!("|===== run =====");
     while app.environment.window_system.running {
         let ev = next_event(app.environment.window_system.display);
+        log!("Got event: {:?}", ev.type_);
         match ev.type_ {
             x11::xlib::KeyPress => key_press(app, ev),
             x11::xlib::MapRequest => map_request(app, ev),
@@ -1919,6 +1979,7 @@ fn run(app: &mut ApplicationContainer) {
             x11::xlib::PropertyNotify => property_notify(app, ev),
             x11::xlib::ConfigureNotify => configure_notify(app, ev),
             x11::xlib::ClientMessage => client_message(app, ev),
+            x11::xlib::ConfigureRequest => configure_request(app, ev),
             _ => {}
         };
     }

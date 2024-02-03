@@ -339,7 +339,7 @@ pub mod xlib {
                 type_: ev.type_,
                 ..Default::default()
             };
-            match ev.type_ {
+            match event.type_ {
                 x11::xlib::KeyPress | x11::xlib::KeyRelease => {
                     event.key = Some(ev.key);
                 }
@@ -367,6 +367,9 @@ pub mod xlib {
                 }
                 x11::xlib::ClientMessage => {
                     event.client = Some(ev.client_message);
+                }
+                x11::xlib::ConfigureRequest => {
+                    event.configure_request = Some(ev.configure_request);
                 }
                 _ => {}
             };
@@ -472,6 +475,7 @@ pub mod xlib {
         pub client: Option<x11::xlib::XClientMessageEvent>,
         pub property: Option<x11::xlib::XPropertyEvent>,
         pub configure: Option<x11::xlib::XConfigureEvent>,
+        pub configure_request: Option<x11::xlib::XConfigureRequestEvent>,
     }
 
     pub fn change_property(
