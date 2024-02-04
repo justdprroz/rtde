@@ -101,6 +101,7 @@ pub struct WindowSystemContainer {
     pub wm_check_win: u64,
     pub running: bool,
     pub atoms: Atoms,
+    pub atoms_lookup: std::collections::HashMap<x11::xlib::Atom, String>,
 }
 
 impl std::fmt::Debug for WindowSystemContainer {

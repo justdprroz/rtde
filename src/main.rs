@@ -8,6 +8,7 @@
 
 mod get_default;
 mod grab;
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::mem::size_of;
 use std::ptr::null_mut;
@@ -15,10 +16,12 @@ use std::vec;
 
 use grab::grab_key;
 use x11::xlib::CWHeight;
+use x11::xlib::CWSibling;
+use x11::xlib::CWStackMode;
 use x11::xlib::CWWidth;
 use x11::xlib::PBaseSize;
 use x11::xlib::PPosition;
-use x11::xlib::PSize;
+use x11::xlib::XWindowChanges;
 use x11::xlib::CWX;
 use x11::xlib::CWY;
 use x11::xlib::XA_CARDINAL;
@@ -28,6 +31,7 @@ mod structs;
 mod wrap;
 
 use crate::structs::Color;
+use crate::wrap::xlib::get_atom_name;
 
 fn argb_to_int(c: Color) -> u64 {
     (c.alpha as u64) << 24 | (c.red as u64) << 16 | (c.green as u64) << 8 | (c.blue as u64)
@@ -127,6 +131,46 @@ macro_rules! log {
     };
 }
 
+const EVENT_LOOKUP: [&str; 37] = [
+    "_",
+    "_",
+    "KeyPress",
+    "KeyRelease",
+    "ButtonPress",
+    "ButtonRelease",
+    "MotionNotify",
+    "EnterNotify",
+    "LeaveNotify",
+    "FocusIn",
+    "FocusOut",
+    "KeymapNotify",
+    "Expose",
+    "GraphicsExpose",
+    "NoExpose",
+    "VisibilityNotify",
+    "CreateNotify",
+    "DestroyNotify",
+    "UnmapNotify",
+    "MapNotify",
+    "MapRequest",
+    "ReparentNotify",
+    "ConfigureNotify",
+    "ConfigureRequest",
+    "GravityNotify",
+    "ResizeRequest",
+    "CirculateNotify",
+    "CirculateRequest",
+    "PropertyNotify",
+    "SelectionClear",
+    "SelectionRequest",
+    "SelectionNotify",
+    "ColormapNotify",
+    "ClientMessage",
+    "MappingNotify",
+    "GenericEvent",
+    "LASTEvent",
+];
+
 /// Initially sets ApplicationContainer variables
 fn setup() -> ApplicationContainer {
     log!("|===== setup =====");
@@ -187,6 +231,7 @@ fn setup() -> ApplicationContainer {
                     net_desktop_names: 0,
                     net_wm_desktop: 0,
                 },
+                atoms_lookup: HashMap::new(),
             },
         },
         api: Api {},
@@ -701,14 +746,22 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     let wa = match get_window_attributes(app.environment.window_system.display, win) {
         Some(a) => {
             if a.override_redirect != 0 {
+                log!("Given window `{}` can't be managed", win);
                 return;
             }
             a
         }
         None => {
+            log!("Given window `{}` can't be managed", win);
             return;
         }
     };
+
+    if let Some(_) = find_window_indexes(app, win) {
+        return;
+    }
+
+    log!("{:#?}", wa);
 
     let win_type = intern_atom(
         app.environment.window_system.display,
@@ -743,7 +796,7 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
 
     // Check if window is transient
     if get_transient_for_hint(app.environment.window_system.display, win, &mut trans) != 1 {
-        log!("   |- Transient");
+        log!("   |- Transient for `{}`", trans);
     } else {
         log!("   |- Not transient");
     }
@@ -774,7 +827,6 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     // Get window default size hints
     log!("   |- Getting default sizes");
     if let Some((sh, _)) = get_wm_normal_hints(app.environment.window_system.display, win) {
-        println!("{:#?}", &sh);
         // Get Max Sizes
         if (sh.flags & PMaxSize) != 0 {
             c.maxw = sh.max_width;
@@ -803,23 +855,23 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
             c.minh = 0;
         }
 
-        // Get Base Sizes
-        if (sh.flags & PBaseSize) != 0 {
-            c.w = sh.base_width as u32;
-            c.h = sh.base_height as u32;
-            log!(
-                "      |- Setting size to `{}, {}` `(width, height)`",
-                sh.base_width,
-                sh.base_height
-            );
-        }
+        // // Get Base Sizes
+        // if (sh.flags & PBaseSize) != 0 {
+        //     c.w = sh.base_width as u32;
+        //     c.h = sh.base_height as u32;
+        //     log!(
+        //         "      |- Setting size to `{}, {}` `(width, height)`",
+        //         sh.base_width,
+        //         sh.base_height
+        //     );
+        // }
 
-        // Get Base position
-        if (sh.flags & PPosition) != 0 {
-            c.x = sh.x;
-            c.y = sh.y;
-            log!("      |- Setting position to `{}, {}` `(x, y)`", sh.x, sh.y);
-        }
+        // // Get Base position
+        // if (sh.flags & PPosition) != 0 {
+        //     c.x = sh.x;
+        //     c.y = sh.y;
+        //     log!("      |- Setting position to `{}, {}` `(x, y)`", sh.x, sh.y);
+        // }
     } else {
         log!("   |- Cant fetch normal hints, setting everything to 0");
         c.maxw = 0;
@@ -845,20 +897,18 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         c.floating = c.fixed || trans != 0;
     } else {
         log!("   |- Floating");
-        let s =
-            &app.environment.window_system.screens[app.environment.window_system.current_screen];
-        let sw = s.width as i32;
-        let sh = s.height as i32;
-        let sbh = match &s.status_bar {
-            Some(s) => s.height,
-            None => 0,
-        } as i32;
+        //let s =
+        //    &app.environment.window_system.screens[app.environment.window_system.current_screen];
+        //let sw = s.width as i32;
+        //let sh = s.height as i32;
+        //let sbh = match &s.status_bar {
+        //    Some(s) => s.height,
+        //    None => 0,
+        //} as i32;
 
-        c.x = (sw - (c.w as i32)) / 2;
-        c.y = (sh - sbh - (c.h as i32)) / 2;
+        //c.x = (sw - (c.w as i32)) / 2;
+        //c.y = (sh - sbh - (c.h as i32)) / 2;
     }
-
-    // floating windows are moved to centre of screen?
 
     // Set input mask
     select_input(
@@ -1535,9 +1585,13 @@ fn move_to_workspace(app: &mut ApplicationContainer, n: u64) {
     }
 }
 
-fn focus_on_workspace(app: &mut ApplicationContainer, n: u64) {
-    focus_on_screen_index(app, n as usize / 10);
-    let n = n % 10;
+fn focus_on_workspace(app: &mut ApplicationContainer, n: u64, r: bool) {
+    let n = if !r {
+        focus_on_screen_index(app, n as usize / 10);
+        n % 10
+    } else {
+        n
+    };
     log!("   |- Got `FocusOnWorkspace` Action");
     // Check is focusing on another workspace
     if n as usize != app.environment.window_system.current_workspace {
@@ -1665,7 +1719,7 @@ fn key_press(app: &mut ApplicationContainer, ev: Event) {
                     move_to_workspace(app, *n);
                 }
                 ActionResult::FocusOnWorkspace(n) => {
-                    focus_on_workspace(app, *n);
+                    focus_on_workspace(app, *n, true);
                 }
                 ActionResult::Quit => {
                     log!("   |- Got `Quit` Action. `Quiting`");
@@ -1805,22 +1859,26 @@ fn motion_notify(app: &mut ApplicationContainer, ev: Event) {
 fn property_notify(app: &mut ApplicationContainer, ev: Event) {
     // Safely retrive event struct
     let p = ev.property.unwrap();
-    log!("|- Got property notify");
+    log!("|- Got `PropertyNotify`");
+    let prop_name = get_atom_name(app.environment.window_system.display, p.atom);
     // If current window is not root proceed to updating name
     if p.window != app.environment.window_system.root_win {
         log!(
-            "|- `Property` changed for window {} `{}`",
-            p.window,
-            get_client_name(app, p.window)
+            "   |- Property: `{}` changed for window `{}`({})",
+            prop_name,
+            get_client_name(app, p.window),
+            p.window
         );
         update_client_name(app, p.window);
+    } else {
+        log!("   |- Property `{}` change for root window", prop_name);
     }
 }
 
 fn configure_notify(app: &mut ApplicationContainer, ev: Event) {
-    let c = ev.configure.unwrap();
-    log!("|- Got ConfigureNotify for {}", c.window);
-    if c.window == app.environment.window_system.root_win {
+    let cn = ev.configure.unwrap();
+    if cn.window == app.environment.window_system.root_win {
+        log!("|- Got `ConfigureNotify` for `root window`");
         let n = app.environment.window_system.screens.len();
         let screens = xinerama_query_screens(app.environment.window_system.display)
             .expect("Running without xinerama is not supported");
@@ -1923,16 +1981,28 @@ fn configure_notify(app: &mut ApplicationContainer, ev: Event) {
             }
         }
         arrange(app);
+    } else if let Some((s, w, c)) = find_window_indexes(app, cn.window) {
+        let client = &app.environment.window_system.screens[s].workspaces[w].clients[c];
+        log!(
+            "|- Got `ConfigureNotify` of {:?} for `{}`",
+            cn.event,
+            client.window_name
+        );
+    } else {
+        log!("|- Got `ConfigureNotify` from `Unmanaged window`");
     }
 }
 
 fn client_message(app: &mut ApplicationContainer, ev: Event) {
     let c = ev.client.unwrap();
-    log!("|- Got `message`");
+    log!("|- Got `Client Message`");
     if let Some(cc) = find_window_indexes(app, c.window) {
         let cc = &mut app.environment.window_system.screens[cc.0].workspaces[cc.1].clients[cc.2];
-        log!("   |- From: `{}`", &cc.window_name);
-        log!("      |- Type: `{}`", c.message_type);
+        log!(
+            "   |- Of type `{}` From: `{}`",
+            get_atom_name(app.environment.window_system.display, c.message_type),
+            cc.window_name
+        );
         if c.message_type == app.environment.window_system.atoms.net_wm_state {
             if c.data.get_long(1) as u64 == app.environment.window_system.atoms.net_wm_fullscreen
                 || c.data.get_long(2) as u64
@@ -1969,18 +2039,21 @@ fn client_message(app: &mut ApplicationContainer, ev: Event) {
                 }
             }
         }
-    }
-    if c.message_type == app.environment.window_system.atoms.net_current_desktop {
-        log!("   |- Got `Focus Workspace`");
-        log!("      |- {:#?}", c.data);
-        focus_on_workspace(app, c.data.get_long(0) as u64);
+    } else {
+        log!(
+            "   |- Of type `{}`",
+            get_atom_name(app.environment.window_system.display, c.message_type)
+        );
+        if c.message_type == app.environment.window_system.atoms.net_current_desktop {
+            focus_on_workspace(app, c.data.get_long(0) as u64, false);
+        }
     }
 }
 
 fn configure_request(app: &mut ApplicationContainer, ev: Event) {
     let cr = ev.configure_request.unwrap();
-    log!("|- Got `ConfigureRequest` from {}", cr.window);
 
+    log!("|- Got `ConfigureRequest` for `{}`", cr.window);
     if let Some((s, w, c)) = find_window_indexes(app, cr.window) {
         let sw = app.environment.window_system.screens[s].width as i32;
         let sh = app.environment.window_system.screens[s].height as i32;
@@ -1989,6 +2062,33 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
             None => 0,
         } as i32;
         let client = &mut app.environment.window_system.screens[s].workspaces[w].clients[c];
+        let mut resize = false;
+        if (cr.value_mask & CWX as u64) != 0 {
+            log!("   |- Configure Window `X Postion`");
+            resize = true;
+        }
+        if (cr.value_mask & CWY as u64) != 0 {
+            log!("   |- Configure Window `Y Postion`");
+            resize = true;
+        }
+        if (cr.value_mask & CWWidth as u64) != 0 {
+            log!("   |- Configure Window `Width`");
+            resize = true;
+        }
+        if (cr.value_mask & CWHeight as u64) != 0 {
+            log!("   |- Confire Window `Height`");
+            resize = true;
+        }
+        if (cr.value_mask & CWBorderWidth as u64) != 0 {
+            log!("   |- Confire Window `Border Width`");
+        }
+        if (cr.value_mask & CWSibling as u64) != 0 {
+            log!("   |- Confire Window `Sibling`");
+        }
+        if (cr.value_mask & CWStackMode as u64) != 0 {
+            log!("   |- Confire Window `Stack Mode`");
+        }
+
         if client.floating {
             if (cr.value_mask & CWWidth as u64) != 0 {
                 client.w = cr.width as u32;
@@ -2003,18 +2103,37 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
                 client.y = cr.y;
             }
 
-            client.x = (sw - (client.w as i32)) / 2;
-            client.y = (sh - sbh - (client.h as i32)) / 2;
+            if resize {
+                client.x = (sw - (client.w as i32)) / 2;
+                client.y = (sh - sbh - (client.h as i32)) / 2;
 
-            move_resize_window(
-                app.environment.window_system.display,
-                client.window_id,
-                client.x,
-                client.y,
-                client.w,
-                client.h,
-            );
+                move_resize_window(
+                    app.environment.window_system.display,
+                    client.window_id,
+                    client.x,
+                    client.y,
+                    client.w,
+                    client.h,
+                );
+            }
         }
+    } else {
+        let mut wc = XWindowChanges {
+            x: cr.x,
+            y: cr.y,
+            width: cr.width,
+            height: cr.height,
+            border_width: cr.border_width,
+            sibling: cr.above,
+            stack_mode: cr.detail,
+        };
+        log!("{:?}", wc);
+        configure_window(
+            app.environment.window_system.display,
+            cr.window,
+            cr.value_mask as u32,
+            &mut wc,
+        );
     }
 }
 
@@ -2022,7 +2141,6 @@ fn run(app: &mut ApplicationContainer) {
     log!("|===== run =====");
     while app.environment.window_system.running {
         let ev = next_event(app.environment.window_system.display);
-        log!("Got event: {:?}", ev.type_);
         match ev.type_ {
             x11::xlib::KeyPress => key_press(app, ev),
             x11::xlib::MapRequest => map_request(app, ev),
@@ -2034,7 +2152,12 @@ fn run(app: &mut ApplicationContainer) {
             x11::xlib::ConfigureNotify => configure_notify(app, ev),
             x11::xlib::ClientMessage => client_message(app, ev),
             x11::xlib::ConfigureRequest => configure_request(app, ev),
-            _ => {}
+            _ => {
+                log!(
+                    "|- Event `{}` is not currently managed",
+                    EVENT_LOOKUP[ev.type_ as usize]
+                );
+            }
         };
     }
 }

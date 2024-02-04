@@ -419,6 +419,17 @@ pub mod xlib {
         }
     }
 
+    pub fn get_atom_name(display: &mut x11::xlib::Display, a: Atom) -> String {
+        unsafe {
+            let ret = x11::xlib::XGetAtomName(display as *mut x11::xlib::Display, a);
+            let sr = std::ffi::CString::from_raw(ret).into_string();
+            match sr {
+                Ok(s) => s,
+                Err(_) => "Invalid Atom".to_string(),
+            }
+        }
+    }
+
     #[allow(dead_code)]
     pub fn set_window_border_width(display: &mut x11::xlib::Display, w: u64, width: u32) {
         unsafe {
