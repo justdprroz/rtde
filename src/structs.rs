@@ -1,27 +1,11 @@
 pub struct ApplicationContainer {
-    pub environment: EnvironmentContainer,
-    pub api: Api,
-}
-
-pub struct EnvironmentContainer {
     pub config: ConfigurationContainer,
-    pub window_system: WindowSystemContainer,
+    pub runtime: RuntimeContainer,
 }
 
 pub struct ConfigurationContainer {
     pub visuals: Visuals,
     pub key_actions: Vec<KeyAction>,
-    pub bar: BarVariant,
-}
-
-pub enum BarVariant {
-    None,
-    External,
-    Bar(Bar),
-}
-
-pub struct Bar {
-    pub height: u64,
 }
 
 pub struct Visuals {
@@ -91,7 +75,7 @@ pub struct Atoms {
 }
 
 /// Stores all states required by WM to operate
-pub struct WindowSystemContainer {
+pub struct RuntimeContainer {
     pub screens: Vec<Screen>,
     pub current_screen: usize,
     pub current_workspace: usize,
@@ -104,7 +88,7 @@ pub struct WindowSystemContainer {
     pub atoms_lookup: std::collections::HashMap<x11::xlib::Atom, String>,
 }
 
-impl std::fmt::Debug for WindowSystemContainer {
+impl std::fmt::Debug for RuntimeContainer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WindowSystemContainer")
             .field("screens", &self.screens)
@@ -119,12 +103,6 @@ impl std::fmt::Debug for WindowSystemContainer {
 }
 
 #[derive(Debug)]
-pub struct StatusBarContainer {
-    pub height: u64,
-    pub win: u64,
-}
-
-#[derive(Debug)]
 pub struct Screen {
     pub number: i64,
     pub x: i64,
@@ -133,7 +111,8 @@ pub struct Screen {
     pub height: i64,
     pub workspaces: Vec<Workspace>,
     pub current_workspace: usize,
-    pub status_bar: Option<StatusBarContainer>,
+    pub status_bar: Option<usize>,
+    pub bar_offsets: (usize, usize, usize, usize), // up, right, bottom, left
 }
 
 #[derive(Debug)]
@@ -162,5 +141,3 @@ pub struct Client {
     pub maxw: i32,
     pub maxh: i32,
 }
-
-pub struct Api {}

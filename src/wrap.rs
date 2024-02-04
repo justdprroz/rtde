@@ -1,8 +1,5 @@
 pub mod xlib {
-    use libc::c_void;
-    use x11::xlib::{Atom, Success, XGetWindowProperty};
-
-    use crate::get_default::{xevent, xwindow_attributes};
+    use x11::xlib::Atom;
 
     unsafe extern "C" fn handler_func(
         _d: *mut x11::xlib::Display,
@@ -57,6 +54,38 @@ pub mod xlib {
         unsafe { x11::xlib::XDefaultScreen(display as *mut x11::xlib::Display) }
     }
 
+    pub fn grab_key(dpy: &mut x11::xlib::Display, keysym: u32, mask: u32) {
+        unsafe {
+            x11::xlib::XGrabKey(
+                dpy,
+                x11::xlib::XKeysymToKeycode(dpy, keysym as u64) as i32,
+                mask,
+                x11::xlib::XDefaultRootWindow(dpy),
+                1,
+                x11::xlib::GrabModeAsync,
+                x11::xlib::GrabModeAsync,
+            );
+        }
+    }
+
+    pub fn _grab_button(dpy: &mut x11::xlib::Display, button: u32, mask: u32) {
+        unsafe {
+            x11::xlib::XGrabButton(
+                dpy,
+                button,
+                mask,
+                x11::xlib::XDefaultRootWindow(dpy),
+                1,
+                (x11::xlib::ButtonPressMask
+                    | x11::xlib::ButtonReleaseMask
+                    | x11::xlib::PointerMotionMask) as u32,
+                x11::xlib::GrabModeAsync,
+                x11::xlib::GrabModeAsync,
+                0,
+                0,
+            );
+        }
+    }
     pub fn change_window_attributes(
         display: &mut x11::xlib::Display,
         w: u64,
@@ -220,7 +249,31 @@ pub mod xlib {
         w: u64,
     ) -> Option<x11::xlib::XWindowAttributes> {
         unsafe {
-            let mut wa: x11::xlib::XWindowAttributes = xwindow_attributes();
+            let mut wa: x11::xlib::XWindowAttributes = x11::xlib::XWindowAttributes {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                border_width: 0,
+                depth: 0,
+                visual: std::ptr::null_mut(),
+                root: 0,
+                class: 0,
+                bit_gravity: 0,
+                win_gravity: 0,
+                backing_store: 0,
+                backing_planes: 0,
+                backing_pixel: 0,
+                save_under: 0,
+                colormap: 0,
+                map_installed: 0,
+                map_state: 0,
+                all_event_masks: 0,
+                your_event_mask: 0,
+                do_not_propagate_mask: 0,
+                override_redirect: 0,
+                screen: std::ptr::null_mut(),
+            };
             if x11::xlib::XGetWindowAttributes(
                 display as *mut x11::xlib::Display,
                 w,
@@ -264,7 +317,7 @@ pub mod xlib {
             let name_ptr = std::ffi::CString::new(atom_name).unwrap();
             x11::xlib::XInternAtom(
                 display as *mut x11::xlib::Display,
-                name_ptr.as_ptr() as *const i8,
+                name_ptr.as_ptr(),
                 oie as i32,
             )
         }
@@ -278,7 +331,7 @@ pub mod xlib {
         event: &mut Event,
     ) -> bool {
         unsafe {
-            let mut xe = xevent();
+            let mut xe = x11::xlib::XEvent { type_: 0 };
             xe.type_ = event.type_;
             if let Some(e) = event.client {
                 xe.client_message = e;
@@ -330,7 +383,7 @@ pub mod xlib {
 
     pub fn next_event(display: &mut x11::xlib::Display) -> Event {
         unsafe {
-            let mut ev: x11::xlib::XEvent = xevent();
+            let mut ev: x11::xlib::XEvent = x11::xlib::XEvent { type_: 0 };
             x11::xlib::XNextEvent(
                 display as *mut x11::xlib::Display,
                 &mut ev as *mut x11::xlib::XEvent,
