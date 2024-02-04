@@ -1,14 +1,11 @@
 pub struct ApplicationContainer {
     pub config: ConfigurationContainer,
     pub runtime: RuntimeContainer,
+    pub atoms: Atoms,
 }
 
 pub struct ConfigurationContainer {
-    pub visuals: Visuals,
     pub key_actions: Vec<KeyAction>,
-}
-
-pub struct Visuals {
     pub gap_width: usize,
     pub border_size: usize,
     pub normal_border_color: Color,
@@ -54,10 +51,12 @@ pub enum ScreenSwitching {
 
 #[derive(Debug)]
 pub struct Atoms {
+    pub utf8string: u64,
     pub wm_protocols: u64,
     pub wm_delete: u64,
     pub wm_state: u64,
     pub wm_take_focus: u64,
+    pub wm_name: u64,
     pub net_active_window: u64,
     pub net_supported: u64,
     pub net_wm_name: u64,
@@ -66,6 +65,7 @@ pub struct Atoms {
     pub net_wm_fullscreen: u64,
     pub net_wm_window_type: u64,
     pub net_wm_window_type_dialog: u64,
+    pub net_wm_window_type_dock: u64,
     pub net_client_list: u64,
     pub net_number_of_desktops: u64,
     pub net_current_desktop: u64,
@@ -84,8 +84,7 @@ pub struct RuntimeContainer {
     pub root_win: u64,
     pub wm_check_win: u64,
     pub running: bool,
-    pub atoms: Atoms,
-    pub atoms_lookup: std::collections::HashMap<x11::xlib::Atom, String>,
+    pub bars: Vec<Bar>,
 }
 
 impl std::fmt::Debug for RuntimeContainer {
@@ -111,8 +110,16 @@ pub struct Screen {
     pub height: i64,
     pub workspaces: Vec<Workspace>,
     pub current_workspace: usize,
-    pub status_bar: Option<usize>,
     pub bar_offsets: (usize, usize, usize, usize), // up, right, bottom, left
+}
+
+#[derive(Debug, Clone)]
+pub struct Bar {
+    pub window_id: u64,
+    pub x: i64,
+    pub y: i64,
+    pub w: usize,
+    pub h: usize,
 }
 
 #[derive(Debug)]

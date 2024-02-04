@@ -13,7 +13,6 @@ use crate::structs::*;
 use crate::wrap::xinerama::*;
 use crate::wrap::xlib::*;
 use libc::LC_CTYPE;
-use std::collections::HashMap;
 use std::ffi::CString;
 use std::mem::size_of;
 use std::ptr::null_mut;
@@ -48,6 +47,7 @@ use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::Success;
 use x11::xlib::XSetWindowAttributes;
+use x11::xlib::XWindowAttributes;
 use x11::xlib::XWindowChanges;
 use x11::xlib::CWX;
 use x11::xlib::CWY;
@@ -115,32 +115,25 @@ const EVENT_LOOKUP: [&str; 37] = [
     "LASTEvent",
 ];
 
-/// Initially sets ApplicationContainer variables
 fn setup() -> ApplicationContainer {
     log!("|===== setup =====");
-    // Create some static variables
-    // cause app.env.ws.vars.display holds static reference we should supply it with it during init
     let display = open_display(None).expect("Failed to open display");
-    log!("|- Opened display");
 
-    // Create Main container
     let mut app = ApplicationContainer {
         config: ConfigurationContainer {
-            visuals: Visuals {
-                gap_width: 4,
-                border_size: 2,
-                normal_border_color: Color {
-                    alpha: 255,
-                    red: 64,
-                    green: 64,
-                    blue: 128,
-                },
-                active_border_color: Color {
-                    alpha: 255,
-                    red: 126,
-                    green: 36,
-                    blue: 135,
-                },
+            gap_width: 4,
+            border_size: 2,
+            normal_border_color: Color {
+                alpha: 255,
+                red: 64,
+                green: 64,
+                blue: 128,
+            },
+            active_border_color: Color {
+                alpha: 255,
+                red: 126,
+                green: 36,
+                blue: 135,
             },
             key_actions: Vec::new(),
         },
@@ -153,309 +146,40 @@ fn setup() -> ApplicationContainer {
             current_screen: 0,
             current_workspace: 0,
             current_client: None,
-            atoms: Atoms {
-                wm_protocols: 0,
-                wm_delete: 0,
-                wm_state: 0,
-                net_wm_check: 0,
-                wm_take_focus: 0,
-                net_active_window: 0,
-                net_supported: 0,
-                net_wm_name: 0,
-                net_wm_state: 0,
-                net_wm_fullscreen: 0,
-                net_wm_window_type: 0,
-                net_wm_window_type_dialog: 0,
-                net_client_list: 0,
-                net_number_of_desktops: 0,
-                net_current_desktop: 0,
-                net_desktop_viewport: 0,
-                net_desktop_names: 0,
-                net_wm_desktop: 0,
-            },
-            atoms_lookup: HashMap::new(),
+            bars: vec![],
+        },
+        atoms: Atoms {
+            utf8string: 0,
+            wm_protocols: 0,
+            wm_delete: 0,
+            wm_state: 0,
+            wm_name: 0,
+            net_wm_check: 0,
+            wm_take_focus: 0,
+            net_active_window: 0,
+            net_supported: 0,
+            net_wm_name: 0,
+            net_wm_state: 0,
+            net_wm_fullscreen: 0,
+            net_wm_window_type: 0,
+            net_wm_window_type_dock: 0,
+            net_wm_window_type_dialog: 0,
+            net_client_list: 0,
+            net_number_of_desktops: 0,
+            net_current_desktop: 0,
+            net_desktop_viewport: 0,
+            net_desktop_names: 0,
+            net_wm_desktop: 0,
         },
     };
-    log!("|- Initialized `ApplicationContainer`");
 
-    // TODO: Load visual_preferences
-
-    // TODO: Load actions
-    let actions: Vec<KeyAction> = {
-        let mut a = vec![
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_Return,
-                result: ActionResult::Spawn("kitty".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_e,
-                result: ActionResult::Spawn("thunar".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_p,
-                result: ActionResult::Spawn("dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b
-        ".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioRaiseVolume,
-                result: ActionResult::Spawn("volumeup".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioLowerVolume,
-                result: ActionResult::Spawn("volumedown".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioMute,
-                result: ActionResult::Spawn("volumemute".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioPlay,
-                result: ActionResult::Spawn("playerctl play-pause".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioNext,
-                result: ActionResult::Spawn("playerctl next".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioPrev,
-                result: ActionResult::Spawn("playerctl previous".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_s,
-                result: ActionResult::Spawn("screenshot".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_q,
-                result: ActionResult::Quit,
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_c,
-                result: ActionResult::KillClient,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_w,
-                result: ActionResult::DumpInfo,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_comma,
-                result: ActionResult::FocusOnScreen(ScreenSwitching::Previous),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_period,
-                result: ActionResult::FocusOnScreen(ScreenSwitching::Next),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_comma,
-                result: ActionResult::MoveToScreen(ScreenSwitching::Previous),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_period,
-                result: ActionResult::MoveToScreen(ScreenSwitching::Next),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_i,
-                result: ActionResult::UpdateMasterCapacity(1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_d,
-                result: ActionResult::UpdateMasterCapacity(-1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_l,
-                result: ActionResult::UpdateMasterWidth(0.05),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_h,
-                result: ActionResult::UpdateMasterWidth(-0.05),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_space,
-                result: ActionResult::ToggleFloat,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_j,
-                result: ActionResult::CycleStack(-1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_k,
-                result: ActionResult::CycleStack(1),
-            },
-        ];
-
-        for (index, key) in [XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
-            .iter()
-            .enumerate()
-        {
-            a.push(KeyAction {
-                modifier: ModKey,
-                keysym: *key,
-                result: ActionResult::FocusOnWorkspace(index as u64),
-            });
-            a.push(KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: *key,
-                result: ActionResult::MoveToWorkspace(index as u64),
-            });
-        }
-        a
-    };
-
-    app.config.key_actions = actions;
-
-    for (_index, action) in app.config.key_actions.iter().enumerate() {
-        log!(
-            "|- Grabbed {} action of type `{:?}`",
-            _index + 1,
-            &action.result
-        );
-        grab_key(app.runtime.display, action.keysym, action.modifier);
-    }
-
-    log!("|- Loaded {} `Actions`", app.config.key_actions.len());
-
-    // TODO: Load layout_rules
-
-    // TODO: Load status_bar_builder
-
-    // TODO: Init status_bar
-
-    // Init variables
-    // app.env.win.var.dis was already initialized (Proof me wrong)
     app.runtime.root_win = default_root_window(app.runtime.display);
 
-    let dpy = &mut app.runtime.display;
-
-    app.runtime.atoms = Atoms {
-        wm_protocols: intern_atom(dpy, "WM_PROTOCOLS".to_string(), false),
-        wm_delete: intern_atom(dpy, "WM_DELETE_WINDOW".to_string(), false),
-        wm_state: intern_atom(dpy, "WM_STATE".to_string(), false),
-        wm_take_focus: intern_atom(dpy, "WM_TAKE_FOCUS".to_string(), false),
-
-        net_active_window: intern_atom(dpy, "_NET_ACTIVE_WINDOW".to_string(), false),
-        net_supported: intern_atom(dpy, "_NET_SUPPORTED".to_string(), false),
-        net_wm_name: intern_atom(dpy, "_NET_WM_NAME".to_string(), false),
-        net_wm_state: intern_atom(dpy, "_NET_WM_STATE".to_string(), false),
-        net_wm_check: intern_atom(dpy, "_NET_SUPPORTING_WM_CHECK".to_string(), false),
-        net_wm_fullscreen: intern_atom(dpy, "_NET_WM_STATE_FULLSCREEN".to_string(), false),
-        net_wm_window_type: intern_atom(dpy, "_NET_WM_WINDOW_TYPE".to_string(), false),
-        net_wm_window_type_dialog: intern_atom(
-            dpy,
-            "_NET_WM_WINDOW_TYPE_DIALOG".to_string(),
-            false,
-        ),
-        net_client_list: intern_atom(dpy, "_NET_CLIENT_LIST".to_string(), false),
-        net_number_of_desktops: intern_atom(dpy, "_NET_NUMBER_OF_DESKTOPS".to_string(), false),
-        net_current_desktop: intern_atom(dpy, "_NET_CURRENT_DESKTOP".to_string(), false),
-        net_desktop_names: intern_atom(dpy, "_NET_DESKTOP_NAMES".to_string(), false),
-        net_desktop_viewport: intern_atom(dpy, "_NET_DESKTOP_VIEWPORT".to_string(), false),
-        net_wm_desktop: intern_atom(dpy, "_NET_WM_DESKTOP".to_string(), false),
-    };
-
-    log!("{:#?}", app.runtime.atoms);
-
-    log!("|- Initialized `Variables`");
-
-    // Init supporting window
-    app.runtime.wm_check_win = create_simple_window(dpy, app.runtime.root_win, 0, 0, 1, 1, 0, 0, 0);
-    let mut wmchckwin = app.runtime.wm_check_win;
-
-    let utf8string = intern_atom(dpy, "UTF8_STRING".to_string(), false);
-
-    change_property(
-        dpy,
-        wmchckwin,
-        app.runtime.atoms.net_wm_check,
-        XA_WINDOW,
-        32,
-        PropModeReplace,
-        &mut wmchckwin as *mut u64 as *mut u8,
-        1,
-    );
-    let wm_name = std::ffi::CString::new("rtwm".to_string()).unwrap();
-    change_property(
-        dpy,
-        wmchckwin,
-        app.runtime.atoms.net_wm_name,
-        utf8string,
-        8,
-        PropModeReplace,
-        wm_name.as_ptr() as *mut u8,
-        7,
-    );
-    change_property(
-        dpy,
-        app.runtime.root_win,
-        app.runtime.atoms.net_wm_check,
-        XA_WINDOW,
-        32,
-        PropModeReplace,
-        &mut wmchckwin as *mut u64 as *mut u8,
-        1,
-    );
-
-    // Some EWMH crap
-
+    init_actions(&mut app);
+    init_supported_atoms(&mut app);
+    init_wm_check(&mut app);
     init_screens(&mut app);
-
-    log!("{:#?}", &app.runtime.screens);
-    log!("|- Initialized xinerama `Screens` and nested `Workspaces`");
-    // TODO: Init Api
-
-    // Setup WM with X server info
-
     set_error_handler();
-
-    let ws = &mut app.runtime;
-    let mut netatoms = vec![
-        ws.atoms.net_active_window,
-        ws.atoms.net_supported,
-        ws.atoms.net_wm_name,
-        ws.atoms.net_wm_check,
-        ws.atoms.net_wm_fullscreen,
-        ws.atoms.net_wm_window_type,
-        ws.atoms.net_wm_window_type_dialog,
-        ws.atoms.net_client_list,
-        ws.atoms.net_wm_state,
-        ws.atoms.net_number_of_desktops,
-        ws.atoms.net_current_desktop,
-        ws.atoms.net_desktop_viewport,
-        ws.atoms.net_desktop_names,
-    ];
-
-    change_property(
-        app.runtime.display,
-        app.runtime.root_win,
-        app.runtime.atoms.net_supported,
-        x11::xlib::XA_ATOM,
-        32,
-        x11::xlib::PropModeReplace,
-        netatoms.as_mut_ptr() as *mut u8,
-        netatoms.len() as i32,
-    );
 
     let mut wa: XSetWindowAttributes = XSetWindowAttributes {
         background_pixmap: 0,
@@ -492,10 +216,271 @@ fn setup() -> ApplicationContainer {
     );
 
     select_input(app.runtime.display, app.runtime.root_win, wa.event_mask);
-    log!("|- Applied `Event mask`");
 
-    // Return initialized container
     app
+}
+
+fn init_wm_check(app: &mut ApplicationContainer) {
+    app.runtime.wm_check_win = create_simple_window(
+        app.runtime.display,
+        app.runtime.root_win,
+        0,
+        0,
+        1,
+        1,
+        0,
+        0,
+        0,
+    );
+    let mut wmchckwin = app.runtime.wm_check_win;
+
+    change_property(
+        app.runtime.display,
+        wmchckwin,
+        app.atoms.net_wm_check,
+        XA_WINDOW,
+        32,
+        PropModeReplace,
+        &mut wmchckwin as *mut u64 as *mut u8,
+        1,
+    );
+
+    let wm_name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+    change_property(
+        app.runtime.display,
+        wmchckwin,
+        app.atoms.net_wm_name,
+        app.atoms.utf8string,
+        8,
+        PropModeReplace,
+        wm_name.as_ptr() as *mut u8,
+        7,
+    );
+
+    change_property(
+        app.runtime.display,
+        app.runtime.root_win,
+        app.atoms.net_wm_check,
+        XA_WINDOW,
+        32,
+        PropModeReplace,
+        &mut wmchckwin as *mut u64 as *mut u8,
+        1,
+    );
+}
+
+fn init_actions(app: &mut ApplicationContainer) {
+    let actions: Vec<KeyAction> = {
+        use ActionResult::*;
+
+        let terminal: String = "kitty".to_string();
+        let file_manager: String = "thunar".to_string();
+        let app_launcher: String = "dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b".to_string();
+        let screenshot: String = "scrot -fs ~/Pictures/screenshots/%Y-%m-%d-%H:%M.png".to_string();
+
+        let mut a = vec![
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_Return,
+                result: Spawn(terminal),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_e,
+                result: Spawn(file_manager),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_p,
+                result: Spawn(app_launcher),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioRaiseVolume,
+                result: Spawn("volumeup".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioLowerVolume,
+                result: Spawn("volumedown".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioMute,
+                result: Spawn("volumemute".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioPlay,
+                result: Spawn("playerctl play-pause".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioNext,
+                result: Spawn("playerctl next".to_string()),
+            },
+            KeyAction {
+                modifier: 0,
+                keysym: XF86XK_AudioPrev,
+                result: Spawn("playerctl previous".to_string()),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_s,
+                result: Spawn(screenshot),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_q,
+                result: Quit,
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_c,
+                result: KillClient,
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_w,
+                result: DumpInfo,
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_comma,
+                result: FocusOnScreen(ScreenSwitching::Previous),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_period,
+                result: FocusOnScreen(ScreenSwitching::Next),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_comma,
+                result: MoveToScreen(ScreenSwitching::Previous),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_period,
+                result: MoveToScreen(ScreenSwitching::Next),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_i,
+                result: UpdateMasterCapacity(1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_d,
+                result: UpdateMasterCapacity(-1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_l,
+                result: UpdateMasterWidth(0.05),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_h,
+                result: UpdateMasterWidth(-0.05),
+            },
+            KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: XK_space,
+                result: ToggleFloat,
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_j,
+                result: CycleStack(-1),
+            },
+            KeyAction {
+                modifier: ModKey,
+                keysym: XK_k,
+                result: CycleStack(1),
+            },
+        ];
+
+        for (index, key) in [XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
+            .iter()
+            .enumerate()
+        {
+            a.push(KeyAction {
+                modifier: ModKey,
+                keysym: *key,
+                result: FocusOnWorkspace(index as u64),
+            });
+            a.push(KeyAction {
+                modifier: ModKey | ShiftMask,
+                keysym: *key,
+                result: MoveToWorkspace(index as u64),
+            });
+        }
+        a
+    };
+
+    app.config.key_actions = actions;
+    for action in app.config.key_actions.iter() {
+        grab_key(app.runtime.display, action.keysym, action.modifier);
+    }
+}
+
+fn init_supported_atoms(app: &mut ApplicationContainer) {
+    // let dpy = &mut app.runtime.display;
+    macro_rules! intern_atom {
+        ($e:expr) => {
+            intern_atom(app.runtime.display, $e.to_string(), false)
+        };
+    }
+    app.atoms = Atoms {
+        utf8string: intern_atom!("UTF8_STRING"),
+        wm_protocols: intern_atom!("WM_PROTOCOLS"),
+        wm_delete: intern_atom!("WM_DELETE_WINDOW"),
+        wm_state: intern_atom!("WM_STATE"),
+        wm_name: intern_atom!("WM_NAME"),
+        wm_take_focus: intern_atom!("WM_TAKE_FOCUS"),
+        net_active_window: intern_atom!("_NET_ACTIVE_WINDOW"),
+        net_supported: intern_atom!("_NET_SUPPORTED"),
+        net_wm_name: intern_atom!("_NET_WM_NAME"),
+        net_wm_state: intern_atom!("_NET_WM_STATE"),
+        net_wm_check: intern_atom!("_NET_SUPPORTING_WM_CHECK"),
+        net_wm_fullscreen: intern_atom!("_NET_WM_STATE_FULLSCREEN"),
+        net_wm_window_type: intern_atom!("_NET_WM_WINDOW_TYPE"),
+        net_wm_window_type_dialog: intern_atom!("_NET_WM_WINDOW_TYPE_DIALOG"),
+        net_wm_window_type_dock: intern_atom!("_NET_WM_WINDOW_TYPE_DOCK"),
+        net_client_list: intern_atom!("_NET_CLIENT_LIST"),
+        net_number_of_desktops: intern_atom!("_NET_NUMBER_OF_DESKTOPS"),
+        net_current_desktop: intern_atom!("_NET_CURRENT_DESKTOP"),
+        net_desktop_names: intern_atom!("_NET_DESKTOP_NAMES"),
+        net_desktop_viewport: intern_atom!("_NET_DESKTOP_VIEWPORT"),
+        net_wm_desktop: intern_atom!("_NET_WM_DESKTOP"),
+    };
+    let mut netatoms = vec![
+        app.atoms.net_active_window,
+        app.atoms.net_supported,
+        app.atoms.net_wm_name,
+        app.atoms.net_wm_check,
+        app.atoms.net_wm_fullscreen,
+        app.atoms.net_wm_window_type,
+        app.atoms.net_wm_window_type_dialog,
+        app.atoms.net_client_list,
+        app.atoms.net_wm_state,
+        app.atoms.net_number_of_desktops,
+        app.atoms.net_current_desktop,
+        app.atoms.net_desktop_viewport,
+        app.atoms.net_desktop_names,
+    ];
+
+    change_property(
+        app.runtime.display,
+        app.runtime.root_win,
+        app.atoms.net_supported,
+        x11::xlib::XA_ATOM,
+        32,
+        x11::xlib::PropModeReplace,
+        netatoms.as_mut_ptr() as *mut u8,
+        netatoms.len() as i32,
+    );
 }
 
 fn init_screens(app: &mut ApplicationContainer) {
@@ -531,7 +516,6 @@ fn init_screens(app: &mut ApplicationContainer) {
                 wv
             },
             current_workspace: 0,
-            status_bar: Some(32),
             bar_offsets: (0, 0, 0, 0),
         })
     }
@@ -575,14 +559,11 @@ fn init_screens(app: &mut ApplicationContainer) {
             }
         }
     }
-
-    let utf8string = intern_atom(app.runtime.display, "UTF8_STRING".to_string(), false);
-
     // Set amount of workspaces
     change_property(
         app.runtime.display,
         app.runtime.root_win,
-        app.runtime.atoms.net_number_of_desktops,
+        app.atoms.net_number_of_desktops,
         XA_CARDINAL,
         32,
         PropModeReplace,
@@ -595,8 +576,8 @@ fn init_screens(app: &mut ApplicationContainer) {
     change_property(
         app.runtime.display,
         app.runtime.root_win,
-        app.runtime.atoms.net_desktop_names,
-        utf8string,
+        app.atoms.net_desktop_names,
+        app.atoms.utf8string,
         8,
         PropModeReplace,
         bytes.as_mut_ptr(),
@@ -607,7 +588,7 @@ fn init_screens(app: &mut ApplicationContainer) {
     change_property(
         app.runtime.display,
         app.runtime.root_win,
-        app.runtime.atoms.net_desktop_viewport,
+        app.atoms.net_desktop_viewport,
         XA_CARDINAL,
         32,
         PropModeReplace,
@@ -621,7 +602,7 @@ fn update_client_desktop(app: &mut ApplicationContainer, win: u64, desk: u64) {
     change_property(
         app.runtime.display,
         win,
-        app.runtime.atoms.net_wm_desktop,
+        app.atoms.net_wm_desktop,
         XA_CARDINAL,
         32,
         PropModeReplace,
@@ -661,7 +642,7 @@ fn scan(app: &mut ApplicationContainer) {
 /// Gets name from x server for specified window and undates it in struct
 fn update_client_name(app: &mut ApplicationContainer, win: u64) {
     // Get name property and dispatch Option<>
-    let name = match get_text_property(app.runtime.display, win, app.runtime.atoms.net_wm_name) {
+    let name = match get_text_property(app.runtime.display, win, app.atoms.net_wm_name) {
         Some(name) => name,
         None => "_".to_string(),
     };
@@ -684,39 +665,34 @@ fn get_client_name(app: &mut ApplicationContainer, win: u64) -> String {
 
 /// Adds client to runtime and configures it if needed
 fn manage_client(app: &mut ApplicationContainer, win: u64) {
-    // Check if window can be managed
-    let wa = match get_window_attributes(app.runtime.display, win) {
-        Some(a) => {
-            if a.override_redirect != 0 {
-                log!("Given window `{}` can't be managed", win);
-                return;
-            }
-            a
-        }
-        None => {
-            log!("Given window `{}` can't be managed", win);
-            return;
-        }
-    };
+    let wa;
 
+    // If thes is no proper window attributes - exit
+    if let Some(a) = get_window_attributes(app.runtime.display, win) {
+        if a.override_redirect == 0 {
+            wa = a;
+        } else {
+            return;
+        };
+    } else {
+        return;
+    }
+
+    // Is window is manager - exit
     if find_window_indexes(app, win).is_some() {
         return;
     }
 
-    log!("{:#?}", wa);
-
-    let win_type = intern_atom(
-        app.runtime.display,
-        "_NET_WM_WINDOW_TYPE".to_string(),
-        false,
-    );
-    let win_dock = intern_atom(
-        app.runtime.display,
-        "_NET_WM_WINDOW_TYPE_DOCK".to_string(),
-        false,
-    );
-
-    let dock: bool = get_atom_prop(app, win, win_type) == win_dock;
+    if get_atom_prop(app, win, app.atoms.net_wm_window_type) == app.atoms.net_wm_window_type_dock {
+        attach_dock(app, &wa, win);
+        map_window(app.runtime.display, win);
+        select_input(
+            app.runtime.display,
+            win,
+            StructureNotifyMask | SubstructureNotifyMask,
+        );
+        return;
+    }
 
     // Create client
     let mut c: Client = Client::default();
@@ -726,88 +702,210 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     c.window_id = win;
     c.w = wa.width as u32;
     c.h = wa.height as u32;
-    c.x = wa.x;
+    c.x = wa.x
+        + app.runtime.screens[app.runtime.current_screen]
+            .bar_offsets
+            .3 as i32;
     c.y = wa.y
-        + match &app.runtime.screens[app.runtime.current_screen].status_bar {
-            Some(h) => *h as i32,
-            None => 0,
-        };
+        + app.runtime.screens[app.runtime.current_screen]
+            .bar_offsets
+            .0 as i32;
     c.visible = true;
 
-    // Check if window is transient
-    if get_transient_for_hint(app.runtime.display, win, &mut trans) != 1 {
-        log!("   |- Transient for `{}`", trans);
-    } else {
-        log!("   |- Not transient");
-    }
+    let _reserved = get_transient_for_hint(app.runtime.display, win, &mut trans);
 
-    // Check if dialog or fullscreen
+    let state = get_atom_prop(app, win, app.atoms.net_wm_state);
+    let wtype = get_atom_prop(app, win, app.atoms.net_wm_window_type);
 
-    let state = get_atom_prop(app, win, app.runtime.atoms.net_wm_state);
-    let wtype = get_atom_prop(app, win, app.runtime.atoms.net_wm_window_type);
-
-    if state == app.runtime.atoms.net_wm_fullscreen {
+    if state == app.atoms.net_wm_fullscreen {
         c.floating = true;
         c.fullscreen = true;
     }
-    if wtype == app.runtime.atoms.net_wm_window_type_dialog {
+    if wtype == app.atoms.net_wm_window_type_dialog {
         c.floating = true;
     }
 
-    // Get window default size hints
-    log!("   |- Getting default sizes");
-    if let Some((sh, _)) = get_wm_normal_hints(app.runtime.display, win) {
-        // Get Max Sizes
+    if !c.floating {
+        c.floating = c.fixed || trans != 0;
+    }
+
+    update_normal_hints(app, &mut c);
+
+    // Set input mask
+    select_input(
+        app.runtime.display,
+        win,
+        EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
+    );
+    // Set previous client border to normal
+    if let Some(cw) = get_current_client_id(app) {
+        set_window_border(
+            app.runtime.display,
+            cw,
+            argb_to_int(app.config.normal_border_color),
+        );
+    }
+    // Get current workspace
+    let w = &mut app.runtime.screens[app.runtime.current_screen].workspaces
+        [app.runtime.current_workspace];
+    // Update client tracker
+    w.current_client = Some(w.clients.len());
+    app.runtime.current_client = w.current_client;
+    // Push to stack
+    w.clients.push(c);
+    // Add window to wm _NET_CLIENT_LIST
+    change_property(
+        app.runtime.display,
+        app.runtime.root_win,
+        app.atoms.net_client_list,
+        XA_WINDOW,
+        32,
+        PropModeAppend,
+        &win as *const u64 as *mut u8,
+        1,
+    );
+
+    let cur_workspace: usize = app.runtime.current_workspace + app.runtime.current_screen * 10;
+
+    update_client_desktop(app, win, cur_workspace as u64);
+
+    let mut wc = x11::xlib::XWindowChanges {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        border_width: app.config.border_size as i32,
+        sibling: 0,
+        stack_mode: 0,
+    };
+    configure_window(app.runtime.display, win, CWBorderWidth as u32, &mut wc);
+    set_window_border(
+        app.runtime.display,
+        win,
+        argb_to_int(app.config.active_border_color),
+    );
+    update_client_name(app, win);
+    raise_window(app.runtime.display, win);
+    set_input_focus(app.runtime.display, win, RevertToPointerRoot, CurrentTime);
+
+    let data: [i64; 2] = [1, 0];
+
+    change_property(
+        app.runtime.display,
+        win,
+        app.atoms.wm_state,
+        app.atoms.wm_state,
+        32,
+        PropModeReplace,
+        &data as *const [i64; 2] as *mut u8,
+        2,
+    );
+
+    // Arrange current workspace
+    arrange(app);
+    // Finish mapping
+    map_window(app.runtime.display, win);
+    log!("   |- Mapped window");
+}
+
+fn attach_dock(app: &mut ApplicationContainer, wa: &XWindowAttributes, win: u64) {
+    let dx = wa.x as i64;
+    let dy = wa.y as i64;
+    let dw = wa.width as usize;
+    let dh = wa.height as usize;
+    for screen in &mut app.runtime.screens {
+        if dx >= screen.x && dx <= (screen.x + screen.width) {
+            if dy >= screen.y && dy <= (screen.y + screen.height) {
+                let mut ba = screen.bar_offsets;
+                // Found corresponding screen
+                if dw > dh {
+                    // dock is horizontal
+                    if dy == screen.y {
+                        // dock is on the top
+                        ba.0 = dh;
+                    } else {
+                        // dock is on the bottom
+                        ba.2 = dh;
+                    }
+                } else {
+                    // dock is vertical
+                    if dx == screen.x {
+                        // dock is on the left
+                        ba.3 = dw;
+                    } else {
+                        // dock is on the right
+                        ba.1 = dw;
+                    }
+                }
+                screen.bar_offsets = ba;
+                app.runtime.bars.push(Bar {
+                    window_id: win,
+                    x: dx,
+                    y: dy,
+                    w: dw,
+                    h: dh,
+                });
+                arrange(app);
+                break;
+            }
+        }
+    }
+}
+
+fn detach_dock(app: &mut ApplicationContainer, win: u64) {
+    log!("   |- Detaching dock");
+    let b = match app.runtime.bars.iter().find(|b| b.window_id == win) {
+        Some(b) => b.clone(),
+        None => return,
+    };
+    app.runtime.bars.retain(|b| b.window_id != win);
+    let dx = b.x as i64;
+    let dy = b.y as i64;
+    let dw = b.w as usize;
+    let dh = b.h as usize;
+    log!("{} {} {} {}", dx, dy, dw, dh);
+    for screen in &mut app.runtime.screens {
+        if dx >= screen.x && dx <= (screen.x + screen.width) {
+            if dy >= screen.y && dy <= (screen.y + screen.height) {
+                let mut ba = screen.bar_offsets;
+                // Found corresponding screen
+                if dw > dh {
+                    // dock is horizontal
+                    if dy == screen.y {
+                        // dock is on the top
+                        ba.0 = 0;
+                    } else {
+                        // dock is on the bottom
+                        ba.2 = 0;
+                    }
+                } else {
+                    // dock is vertical
+                    if dx == screen.x {
+                        // dock is on the left
+                        ba.3 = 0;
+                    } else {
+                        // dock is on the right
+                        ba.1 = 0;
+                    }
+                }
+                screen.bar_offsets = ba;
+                arrange(app);
+                break;
+            }
+        }
+    }
+}
+
+fn update_normal_hints(app: &mut ApplicationContainer, c: &mut Client) {
+    if let Some((sh, _)) = get_wm_normal_hints(app.runtime.display, c.window_id) {
         if (sh.flags & PMaxSize) != 0 {
             c.maxw = sh.max_width;
             c.maxh = sh.max_height;
-            log!(
-                "      |- Setting max size to `{}, {}` `(width, height)`",
-                sh.max_width,
-                sh.max_height
-            );
-        } else {
-            c.maxw = 0;
-            c.maxh = 0;
         }
-
-        // Get Min Sizes
         if (sh.flags & PMinSize) != 0 {
             c.minw = sh.min_width;
             c.minh = sh.min_height;
-            log!(
-                "      |- Setting min size to `{}, {}` `(width, height)`",
-                sh.min_width,
-                sh.min_height
-            );
-        } else {
-            c.minw = 0;
-            c.minh = 0;
         }
-
-        // // Get Base Sizes
-        // if (sh.flags & PBaseSize) != 0 {
-        //     c.w = sh.base_width as u32;
-        //     c.h = sh.base_height as u32;
-        //     log!(
-        //         "      |- Setting size to `{}, {}` `(width, height)`",
-        //         sh.base_width,
-        //         sh.base_height
-        //     );
-        // }
-
-        // // Get Base position
-        // if (sh.flags & PPosition) != 0 {
-        //     c.x = sh.x;
-        //     c.y = sh.y;
-        //     log!("      |- Setting position to `{}, {}` `(x, y)`", sh.x, sh.y);
-        // }
-    } else {
-        log!("   |- Cant fetch normal hints, setting everything to 0");
-        c.maxw = 0;
-        c.maxh = 0;
-        c.minw = 0;
-        c.minh = 0;
     }
 
     if c.minw != 0 && c.w < c.minw as u32 {
@@ -817,110 +915,9 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         c.h = c.minh as u32;
     }
 
-    // Set fixed if max = min and if not zero(no size restrictions)
     if c.maxw != 0 && c.maxh != 0 && c.maxw == c.minw && c.maxh == c.minh {
         c.fixed = true;
     }
-
-    // If fixed or transient => always float;
-    if !c.floating {
-        c.floating = c.fixed || trans != 0;
-    } else {
-        log!("   |- Floating");
-        //let s =
-        //    &app.runtime.screens[app.environment.runtime.current_screen];
-        //let sw = s.width as i32;
-        //let sh = s.height as i32;
-        //let sbh = match &s.status_bar {
-        //    Some(s) => s.height,
-        //    None => 0,
-        //} as i32;
-
-        //c.x = (sw - (c.w as i32)) / 2;
-        //c.y = (sh - sbh - (c.h as i32)) / 2;
-    }
-
-    // Set input mask
-    select_input(
-        app.runtime.display,
-        win,
-        EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
-    );
-    if !dock {
-        // Set previous client border to normal
-        if let Some(cw) = get_current_client_id(app) {
-            set_window_border(
-                app.runtime.display,
-                cw,
-                argb_to_int(app.config.visuals.normal_border_color),
-            );
-        }
-        // Get current workspace
-        let w = &mut app.runtime.screens[app.runtime.current_screen].workspaces
-            [app.runtime.current_workspace];
-        // Update client tracker
-        w.current_client = Some(w.clients.len());
-        app.runtime.current_client = w.current_client;
-        // Push to stack
-        w.clients.push(c);
-        // Add window to wm _NET_CLIENT_LIST
-        change_property(
-            app.runtime.display,
-            app.runtime.root_win,
-            app.runtime.atoms.net_client_list,
-            XA_WINDOW,
-            32,
-            PropModeAppend,
-            &win as *const u64 as *mut u8,
-            1,
-        );
-
-        let cur_workspace: usize = app.runtime.current_workspace + app.runtime.current_screen * 10;
-
-        update_client_desktop(app, win, cur_workspace as u64);
-
-        // set border size
-        let mut wc = x11::xlib::XWindowChanges {
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-            border_width: app.config.visuals.border_size as i32,
-            sibling: 0,
-            stack_mode: 0,
-        };
-        configure_window(app.runtime.display, win, CWBorderWidth as u32, &mut wc);
-        set_window_border(
-            app.runtime.display,
-            win,
-            argb_to_int(app.config.visuals.active_border_color),
-        );
-        // Fetch and set client name
-        update_client_name(app, win);
-        // Raise window above other`
-        raise_window(app.runtime.display, win);
-        // Focus on created window
-        set_input_focus(app.runtime.display, win, RevertToPointerRoot, CurrentTime);
-
-        let data: [i64; 2] = [1, 0];
-
-        change_property(
-            app.runtime.display,
-            win,
-            app.runtime.atoms.wm_state,
-            app.runtime.atoms.wm_state,
-            32,
-            PropModeReplace,
-            &data as *const [i64; 2] as *mut u8,
-            2,
-        );
-
-        // Arrange current workspace
-        arrange(app);
-    }
-    // Finish mapping
-    map_window(app.runtime.display, win);
-    log!("   |- Mapped window");
 }
 
 /// Arranges windows of current workspace in specified layout
@@ -930,14 +927,11 @@ fn arrange(app: &mut ApplicationContainer) {
     // Go thru all screens
     for screen in &mut ws.screens {
         // Usable screen
-        let status_height = match &screen.status_bar {
-            Some(h) => *h,
-            None => 0,
-        };
-        let screen_height = screen.height - status_height as i64;
+        let ba = screen.bar_offsets;
+        let screen_height = screen.height - (ba.0 + ba.2) as i64;
         // Gap width
-        let gw = app.config.visuals.gap_width as i32;
-        let bs = app.config.visuals.border_size as u32;
+        let gw = app.config.gap_width as i32;
+        let bs = app.config.border_size as u32;
         // Get amount of visible not floating clients to arrange
         let stack_size = screen.workspaces[screen.current_workspace]
             .clients
@@ -967,7 +961,7 @@ fn arrange(app: &mut ApplicationContainer) {
             if stack_size == 1 {
                 // if only one window selected, just show it
                 client.x = 0;
-                client.y = status_height as i32;
+                client.y = ba.0 as i32;
                 client.w = screen.width as u32;
                 client.h = screen_height as u32;
             } else if (index as i64) < master_capacity {
@@ -979,7 +973,7 @@ fn arrange(app: &mut ApplicationContainer) {
                 // Add gap offset to the left
                 client.x = gw;
                 // Top gap + clients with their gaps offset
-                client.y = status_height as i32 + gw + (win_height as i32 + gw) * index as i32;
+                client.y = ba.0 as i32 + gw + (win_height as i32 + gw) * index as i32;
                 client.w = master_width - 2 * bs;
                 client.h = win_height as u32 - 2 * bs
             } else {
@@ -990,7 +984,7 @@ fn arrange(app: &mut ApplicationContainer) {
                     (screen_height - gw as i64 - (stack_size as i64 - master_capacity) * gw as i64)
                         / (stack_size as i64 - master_capacity);
                 client.x = master_width as i32 + (gw * 2);
-                client.y = status_height as i32
+                client.y = ba.0 as i32
                     + gw
                     + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
                 client.w = stack_width as u32 - 2 * bs;
@@ -1016,7 +1010,7 @@ fn arrange(app: &mut ApplicationContainer) {
                     ws.display,
                     client.window_id,
                     if stack_size > 1 || client.floating {
-                        app.config.visuals.border_size as u32
+                        app.config.border_size as u32
                     } else {
                         0
                     },
@@ -1148,7 +1142,7 @@ fn send_atom(app: &mut ApplicationContainer, win: u64, e: x11::xlib::Atom) -> bo
             send_event: 0,
             display: null_mut(),
             window: win,
-            message_type: app.runtime.atoms.wm_protocols,
+            message_type: app.atoms.wm_protocols,
             format: 32,
             data: {
                 let mut d = x11::xlib::ClientMessageData::new();
@@ -1197,13 +1191,21 @@ fn unmanage_window(app: &mut ApplicationContainer, win: u64) {
     // Find trackers for window
     if let Some((s, w, c)) = find_window_indexes(app, win) {
         log!("   |- Found window {} at indexes {}, {}, {}", win, s, w, c);
-        delete_property(app.runtime.display, win, app.runtime.atoms.net_wm_desktop);
+        delete_property(app.runtime.display, win, app.atoms.net_wm_desktop);
         app.runtime.screens[s].workspaces[w].clients.remove(c);
         shift_current_client(app, Some(s), Some(w));
         arrange(app);
         update_client_list(app);
     } else {
-        log!("   |- Window is not managed");
+        if app
+            .runtime
+            .bars
+            .iter()
+            .find(|b| b.window_id == win)
+            .is_some()
+        {
+            detach_dock(app, win);
+        }
     }
 }
 
@@ -1215,7 +1217,7 @@ fn update_active_window(app: &mut ApplicationContainer) {
         change_property(
             ws.display,
             ws.root_win,
-            ws.atoms.net_active_window,
+            app.atoms.net_active_window,
             XA_WINDOW,
             32,
             PropModeReplace,
@@ -1269,7 +1271,7 @@ fn spawn(app: &mut ApplicationContainer, cmd: String) {
 fn update_client_list(app: &mut ApplicationContainer) {
     let ws = &mut app.runtime;
 
-    delete_property(ws.display, ws.root_win, ws.atoms.net_client_list);
+    delete_property(ws.display, ws.root_win, app.atoms.net_client_list);
 
     for screen in &app.runtime.screens {
         for workspace in &screen.workspaces {
@@ -1277,7 +1279,7 @@ fn update_client_list(app: &mut ApplicationContainer) {
                 change_property(
                     app.runtime.display,
                     app.runtime.root_win,
-                    app.runtime.atoms.net_client_list,
+                    app.atoms.net_client_list,
                     XA_WINDOW,
                     32,
                     PropModeAppend,
@@ -1297,7 +1299,7 @@ fn kill_client(app: &mut ApplicationContainer) {
             .clients[index]
             .window_id;
         log!("      |- Killing window {}", id);
-        if !send_atom(app, id, app.runtime.atoms.wm_delete) {
+        if !send_atom(app, id, app.atoms.wm_delete) {
             grab_server(app.runtime.display);
             set_close_down_mode(app.runtime.display, DestroyAll);
             x_kill_client(app.runtime.display, id);
@@ -1328,7 +1330,7 @@ fn move_to_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
         set_window_border(
             app.runtime.display,
             cc.window_id,
-            argb_to_int(app.config.visuals.normal_border_color),
+            argb_to_int(app.config.normal_border_color),
         );
 
         let cur_workspace: usize = app.runtime.screens[cs].current_workspace + cs * 10;
@@ -1351,7 +1353,7 @@ fn focus_on_screen_index(app: &mut ApplicationContainer, n: usize) {
         set_window_border(
             app.runtime.display,
             cw,
-            argb_to_int(app.config.visuals.normal_border_color),
+            argb_to_int(app.config.normal_border_color),
         );
     }
     // Change trackers
@@ -1373,14 +1375,14 @@ fn focus_on_screen_index(app: &mut ApplicationContainer, n: usize) {
         set_window_border(
             app.runtime.display,
             cw,
-            argb_to_int(app.config.visuals.active_border_color),
+            argb_to_int(app.config.active_border_color),
         );
     }
     let w: u64 = n as u64 * 10 + app.runtime.screens[n].current_workspace as u64;
     change_property(
         app.runtime.display,
         app.runtime.root_win,
-        app.runtime.atoms.net_current_desktop,
+        app.atoms.net_current_desktop,
         XA_CARDINAL,
         32,
         PropModeReplace,
@@ -1416,7 +1418,7 @@ fn move_to_workspace(app: &mut ApplicationContainer, n: u64) {
             set_window_border(
                 app.runtime.display,
                 cc.window_id,
-                argb_to_int(app.config.visuals.normal_border_color),
+                argb_to_int(app.config.normal_border_color),
             );
             let cur_workspace: usize = n as usize + app.runtime.current_screen * 10;
 
@@ -1461,7 +1463,7 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64, r: bool) {
             set_window_border(
                 app.runtime.display,
                 cw,
-                argb_to_int(app.config.visuals.normal_border_color),
+                argb_to_int(app.config.normal_border_color),
             );
         }
         // Update workspace index
@@ -1473,7 +1475,7 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64, r: bool) {
         change_property(
             app.runtime.display,
             app.runtime.root_win,
-            app.runtime.atoms.net_current_desktop,
+            app.atoms.net_current_desktop,
             XA_CARDINAL,
             32,
             PropModeReplace,
@@ -1488,7 +1490,7 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64, r: bool) {
             set_window_border(
                 app.runtime.display,
                 cw,
-                argb_to_int(app.config.visuals.active_border_color),
+                argb_to_int(app.config.active_border_color),
             );
         }
         // Show current client
@@ -1606,13 +1608,13 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
             set_window_border(
                 app.runtime.display,
                 cw,
-                argb_to_int(app.config.visuals.normal_border_color),
+                argb_to_int(app.config.normal_border_color),
             );
         }
         set_window_border(
             app.runtime.display,
             ew,
-            argb_to_int(app.config.visuals.active_border_color),
+            argb_to_int(app.config.active_border_color),
         );
         update_trackers(app, ew);
         update_active_window(app);
@@ -1623,7 +1625,7 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
         change_property(
             app.runtime.display,
             app.runtime.root_win,
-            app.runtime.atoms.net_current_desktop,
+            app.atoms.net_current_desktop,
             XA_CARDINAL,
             32,
             PropModeReplace,
@@ -1638,7 +1640,7 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
             .is_empty()
         {
             set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
-            delete_property(ws.display, ws.root_win, ws.atoms.net_active_window);
+            delete_property(ws.display, ws.root_win, app.atoms.net_active_window);
         }
     }
 }
@@ -1677,7 +1679,7 @@ fn motion_notify(app: &mut ApplicationContainer, ev: Event) {
             change_property(
                 app.runtime.display,
                 app.runtime.root_win,
-                app.runtime.atoms.net_current_desktop,
+                app.atoms.net_current_desktop,
                 XA_CARDINAL,
                 32,
                 PropModeReplace,
@@ -1691,19 +1693,19 @@ fn motion_notify(app: &mut ApplicationContainer, ev: Event) {
 fn property_notify(app: &mut ApplicationContainer, ev: Event) {
     // Safely retrive event struct
     let p = ev.property.unwrap();
-    log!("|- Got `PropertyNotify`");
+    // log!("|- Got `PropertyNotify`");
     let prop_name = get_atom_name(app.runtime.display, p.atom);
     // If current window is not root proceed to updating name
     if p.window != app.runtime.root_win {
-        log!(
-            "   |- Property: `{}` changed for window `{}`({})",
-            prop_name,
-            get_client_name(app, p.window),
-            p.window
-        );
+        //log!(
+        //    "   |- Property: `{}` changed for window `{}`({})",
+        //    prop_name,
+        //    get_client_name(app, p.window),
+        //    p.window
+        //);
         update_client_name(app, p.window);
     } else {
-        log!("   |- Property `{}` change for root window", prop_name);
+        //log!("   |- Property `{}` change for root window", prop_name);
     }
 }
 
@@ -1734,20 +1736,20 @@ fn client_message(app: &mut ApplicationContainer, ev: Event) {
             get_atom_name(app.runtime.display, c.message_type),
             cc.window_name
         );
-        if c.message_type == app.runtime.atoms.net_wm_state {
-            if c.data.get_long(1) as u64 == app.runtime.atoms.net_wm_fullscreen
-                || c.data.get_long(2) as u64 == app.runtime.atoms.net_wm_fullscreen
+        if c.message_type == app.atoms.net_wm_state {
+            if c.data.get_long(1) as u64 == app.atoms.net_wm_fullscreen
+                || c.data.get_long(2) as u64 == app.atoms.net_wm_fullscreen
             {
                 let sf = c.data.get_long(0) == 1 || c.data.get_long(0) == 2 && cc.fullscreen;
                 if sf && !cc.fullscreen {
                     change_property(
                         app.runtime.display,
                         c.window,
-                        app.runtime.atoms.net_wm_state,
+                        app.atoms.net_wm_state,
                         XA_ATOM,
                         32,
                         PropModeReplace,
-                        &mut app.runtime.atoms.net_wm_fullscreen as *mut u64 as *mut u8,
+                        &mut app.atoms.net_wm_fullscreen as *mut u64 as *mut u8,
                         1,
                     );
                     cc.fullscreen = true;
@@ -1756,7 +1758,7 @@ fn client_message(app: &mut ApplicationContainer, ev: Event) {
                     change_property(
                         app.runtime.display,
                         c.window,
-                        app.runtime.atoms.net_wm_state,
+                        app.atoms.net_wm_state,
                         XA_ATOM,
                         32,
                         PropModeReplace,
@@ -1775,7 +1777,7 @@ fn client_message(app: &mut ApplicationContainer, ev: Event) {
             "   |- Of type `{}`",
             get_atom_name(app.runtime.display, c.message_type)
         );
-        if c.message_type == app.runtime.atoms.net_current_desktop {
+        if c.message_type == app.atoms.net_current_desktop {
             focus_on_workspace(app, c.data.get_long(0) as u64, false);
         }
     }
@@ -1788,10 +1790,7 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
     if let Some((s, w, c)) = find_window_indexes(app, cr.window) {
         let sw = app.runtime.screens[s].width as i32;
         let sh = app.runtime.screens[s].height as i32;
-        let sbh = match &app.runtime.screens[s].status_bar {
-            Some(h) => *h,
-            None => 0,
-        } as i32;
+        let ba = app.runtime.screens[s].bar_offsets;
         let client = &mut app.runtime.screens[s].workspaces[w].clients[c];
         let mut resized = false;
 
@@ -1815,7 +1814,7 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
 
             if resized {
                 client.x = (sw - (client.w as i32)) / 2;
-                client.y = (sh - sbh - (client.h as i32)) / 2;
+                client.y = (sh - (ba.0 as i32) - (client.h as i32)) / 2;
 
                 move_resize_window(
                     app.runtime.display,
