@@ -18,8 +18,14 @@ use std::mem::size_of;
 use std::ptr::null_mut;
 use std::vec;
 use x11::keysym::*;
+use x11::xlib::AnyButton;
+use x11::xlib::AnyModifier;
 use x11::xlib::Atom;
+use x11::xlib::Button1;
+use x11::xlib::Button2;
+use x11::xlib::Button3;
 use x11::xlib::ButtonPressMask;
+use x11::xlib::ButtonReleaseMask;
 use x11::xlib::CWBorderWidth;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
@@ -141,6 +147,11 @@ fn setup() -> ApplicationContainer {
             display,
             root_win: 0,
             wm_check_win: 0,
+            mouse_state: MouseState {
+                win: 0,
+                button: 0,
+                pos: (0, 0),
+            },
             running: true,
             screens: Vec::new(),
             current_screen: 0,
@@ -737,6 +748,8 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         win,
         EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
     );
+    // grab_button(app.runtime.display, win, AnyButton as u32, AnyModifier);
+
     // Set previous client border to normal
     if let Some(cw) = get_current_client_id(app) {
         set_window_border(
@@ -1537,6 +1550,45 @@ fn toggle_float(app: &mut ApplicationContainer) {
     }
 }
 
+fn focus(app: &mut ApplicationContainer, win: u64) {
+    set_window_border(
+        app.runtime.display,
+        win,
+        argb_to_int(app.config.active_border_color),
+    );
+    update_trackers(app, win);
+    update_active_window(app);
+    set_input_focus(app.runtime.display, win, RevertToPointerRoot, CurrentTime);
+    grab_button(app.runtime.display, win, Button1, ModKey);
+    grab_button(app.runtime.display, win, Button3, ModKey);
+
+    // let w = app.runtime.current_workspace + app.runtime.current_screen * 10;
+    //
+    // change_property(
+    //     app.runtime.display,
+    //     app.runtime.root_win,
+    //     app.atoms.net_current_desktop,
+    //     XA_CARDINAL,
+    //     32,
+    //     PropModeReplace,
+    //     &w as *const usize as *mut usize as *mut u8,
+    //     1,
+    // );
+}
+
+fn unfocus(app: &mut ApplicationContainer, win: u64) {
+    set_window_border(
+        app.runtime.display,
+        win,
+        argb_to_int(app.config.normal_border_color),
+    );
+    ungrab_button(app.runtime.display, AnyButton as u32, AnyModifier, win);
+}
+
+// -----------------------------------------------------------------------------
+//                                    Events
+// -----------------------------------------------------------------------------
+
 fn key_press(app: &mut ApplicationContainer, ev: Event) {
     log!("|- Got keyboard event");
     // Safely retrive struct
@@ -1605,33 +1657,9 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
         log!("   |- Setting focus to window");
         // Focus on crossed window
         if let Some(cw) = get_current_client_id(app) {
-            set_window_border(
-                app.runtime.display,
-                cw,
-                argb_to_int(app.config.normal_border_color),
-            );
+            unfocus(app, cw);
         }
-        set_window_border(
-            app.runtime.display,
-            ew,
-            argb_to_int(app.config.active_border_color),
-        );
-        update_trackers(app, ew);
-        update_active_window(app);
-        set_input_focus(app.runtime.display, ew, RevertToPointerRoot, CurrentTime);
-
-        let w = app.runtime.current_workspace + app.runtime.current_screen * 10;
-
-        change_property(
-            app.runtime.display,
-            app.runtime.root_win,
-            app.atoms.net_current_desktop,
-            XA_CARDINAL,
-            32,
-            PropModeReplace,
-            &w as *const usize as *mut usize as *mut u8,
-            1,
-        );
+        focus(app, ew);
     } else {
         let ws = &mut app.runtime;
 
@@ -1660,7 +1688,71 @@ fn unmap_notify(app: &mut ApplicationContainer, ev: Event) {
 fn motion_notify(app: &mut ApplicationContainer, ev: Event) {
     log!("|- `Motion` detected");
     let p = ev.motion.unwrap();
-    let (x, y) = (p.x as i64, p.y as i64);
+    let (x, y) = (p.x_root as i64, p.y_root as i64);
+    if app.runtime.mouse_state.button == Button1 {
+        println!("    |- Moving");
+        let dx: i64;
+        let dy: i64;
+        let mw: u64;
+        {
+            let ms = &mut app.runtime.mouse_state;
+            dx = x - ms.pos.0;
+            dy = y - ms.pos.1;
+            mw = ms.win;
+            ms.pos = (x, y);
+        }
+        if let Some((s, w, c)) = find_window_indexes(app, mw) {
+            let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
+            let ox = cc.x;
+            let oy = cc.y;
+            cc.x += dx as i32;
+            cc.y += dy as i32;
+            move_resize_window(
+                app.runtime.display,
+                mw,
+                ox + dx as i32,
+                oy + dy as i32,
+                cc.w,
+                cc.h,
+            );
+        }
+    }
+    if app.runtime.mouse_state.button == Button3 {
+        println!("    |- Resizing");
+        let dx: i64;
+        let dy: i64;
+        let mw: u64;
+        {
+            let ms = &mut app.runtime.mouse_state;
+            dx = x - ms.pos.0;
+            dy = y - ms.pos.1;
+            mw = ms.win;
+            ms.pos = (x, y);
+        }
+        if let Some((s, w, c)) = find_window_indexes(app, mw) {
+            let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
+            let ow = cc.w;
+            let oh = cc.h;
+            if dx > 0 {
+                cc.w += dx as u32;
+            } else {
+                cc.w -= -dx as u32;
+            }
+            if dy > 0 {
+                cc.h += dy as u32;
+            } else {
+                cc.h -= -dy as u32;
+            }
+            move_resize_window(
+                app.runtime.display,
+                mw,
+                cc.x,
+                cc.y,
+                (ow as i64 + dx) as u32,
+                (oh as i64 + dy) as u32,
+            );
+        }
+    }
     for screen in &app.runtime.screens {
         if screen.x <= x
             && x < screen.x + screen.width
@@ -1845,6 +1937,40 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
     }
 }
 
+fn button_press(app: &mut ApplicationContainer, ev: Event) {
+    let bp = ev.button.unwrap();
+    println!("|- Got `ButtonPress` event");
+    if let Some((s, w, c)) = find_window_indexes(app, bp.window) {
+        let cc = &app.runtime.screens[s].workspaces[w].clients[c];
+        if cc.floating {
+            app.runtime.mouse_state = MouseState {
+                win: bp.window,
+                button: bp.button,
+                pos: (bp.x_root as i64, bp.y_root as i64),
+            };
+            if bp.button == Button3 {
+                warp_pointer_win(app.runtime.display, bp.window, cc.w as i32, cc.h as i32);
+                app.runtime.mouse_state.pos = (
+                    (bp.x_root - bp.x + cc.w as i32) as i64,
+                    (bp.y_root - bp.y + cc.h as i32) as i64,
+                );
+            }
+        }
+    }
+}
+fn button_release(app: &mut ApplicationContainer, _ev: Event) {
+    println!("|- Got `ButtonRelease` event");
+    app.runtime.mouse_state = MouseState {
+        win: 0,
+        button: 0,
+        pos: (0, 0),
+    };
+}
+
+// -----------------------------------------------------------------------------
+//                                    Misc
+// -----------------------------------------------------------------------------
+
 fn run(app: &mut ApplicationContainer) {
     log!("|===== run =====");
     while app.runtime.running {
@@ -1860,6 +1986,8 @@ fn run(app: &mut ApplicationContainer) {
             x11::xlib::ConfigureNotify => configure_notify(app, ev),
             x11::xlib::ClientMessage => client_message(app, ev),
             x11::xlib::ConfigureRequest => configure_request(app, ev),
+            x11::xlib::ButtonPress => button_press(app, ev),
+            x11::xlib::ButtonRelease => button_release(app, ev),
             _ => {
                 log!(
                     "|- Event `{}` is not currently managed",

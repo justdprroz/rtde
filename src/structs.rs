@@ -82,9 +82,16 @@ pub struct RuntimeContainer {
     pub current_client: Option<usize>,
     pub display: &'static mut x11::xlib::Display,
     pub root_win: u64,
+    pub mouse_state: MouseState, // win, button, pos
     pub wm_check_win: u64,
     pub running: bool,
     pub bars: Vec<Bar>,
+}
+
+pub struct MouseState {
+    pub win: u64,
+    pub button: u32,
+    pub pos: (i64, i64),
 }
 
 impl std::fmt::Debug for RuntimeContainer {

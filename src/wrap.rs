@@ -68,13 +68,13 @@ pub mod xlib {
         }
     }
 
-    pub fn _grab_button(dpy: &mut x11::xlib::Display, button: u32, mask: u32) {
+    pub fn grab_button(dpy: &mut x11::xlib::Display, win: u64, button: u32, mask: u32) {
         unsafe {
             x11::xlib::XGrabButton(
                 dpy,
                 button,
                 mask,
-                x11::xlib::XDefaultRootWindow(dpy),
+                win,
                 1,
                 (x11::xlib::ButtonPressMask
                     | x11::xlib::ButtonReleaseMask
@@ -86,6 +86,19 @@ pub mod xlib {
             );
         }
     }
+
+    pub fn ungrab_button(dpy: &mut x11::xlib::Display, button: u32, mask: u32, win: u64) {
+        unsafe {
+            x11::xlib::XUngrabButton(dpy as *mut x11::xlib::Display, button, mask, win);
+        }
+    }
+
+    pub fn warp_pointer_win(dpy: &mut x11::xlib::Display, win: u64, dx: i32, dy: i32) {
+        unsafe {
+            x11::xlib::XWarpPointer(dpy as *mut x11::xlib::Display, 0, win, 0, 0, 0, 0, dx, dy);
+        }
+    }
+
     pub fn change_window_attributes(
         display: &mut x11::xlib::Display,
         w: u64,
