@@ -287,7 +287,7 @@ fn init_actions(app: &mut ApplicationContainer) {
         let terminal: String = "kitty".to_string();
         let file_manager: String = "thunar".to_string();
         let app_launcher: String = "dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b".to_string();
-        let screenshot: String = "scrot -fs ~/Pictures/screenshots/%Y-%m-%d-%H:%M.png".to_string();
+        let screenshot: String = "screenshot".to_string();
 
         let mut a = vec![
             KeyAction {
@@ -827,8 +827,8 @@ fn attach_dock(app: &mut ApplicationContainer, wa: &XWindowAttributes, win: u64)
     let dw = wa.width as usize;
     let dh = wa.height as usize;
     for screen in &mut app.runtime.screens {
-        if dx >= screen.x && dx <= (screen.x + screen.width) {
-            if dy >= screen.y && dy <= (screen.y + screen.height) {
+        if dx >= screen.x && dx < (screen.x + screen.width) {
+            if dy >= screen.y && dy < (screen.y + screen.height) {
                 let mut ba = screen.bar_offsets;
                 // Found corresponding screen
                 if dw > dh {
@@ -878,8 +878,8 @@ fn detach_dock(app: &mut ApplicationContainer, win: u64) {
     let dh = b.h as usize;
     log!("{} {} {} {}", dx, dy, dw, dh);
     for screen in &mut app.runtime.screens {
-        if dx >= screen.x && dx <= (screen.x + screen.width) {
-            if dy >= screen.y && dy <= (screen.y + screen.height) {
+        if dx >= screen.x && dx < (screen.x + screen.width) {
+            if dy >= screen.y && dy < (screen.y + screen.height) {
                 let mut ba = screen.bar_offsets;
                 // Found corresponding screen
                 if dw > dh {
