@@ -52,6 +52,7 @@ use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::Success;
+use x11::xlib::XMotionEvent;
 use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XWindowAttributes;
 use x11::xlib::XWindowChanges;
@@ -527,7 +528,7 @@ fn init_screens(app: &mut ApplicationContainer) {
                 wv
             },
             current_workspace: 0,
-            bar_offsets: (0, 0, 0, 0),
+            bar_offsets: BarOffsets::default(),
         })
     }
 
@@ -716,11 +717,11 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     c.x = wa.x
         + app.runtime.screens[app.runtime.current_screen]
             .bar_offsets
-            .3 as i32;
+            .left as i32;
     c.y = wa.y
         + app.runtime.screens[app.runtime.current_screen]
             .bar_offsets
-            .0 as i32;
+            .up as i32;
     c.visible = true;
 
     let _reserved = get_transient_for_hint(app.runtime.display, win, &mut trans);
@@ -835,19 +836,19 @@ fn attach_dock(app: &mut ApplicationContainer, wa: &XWindowAttributes, win: u64)
                     // dock is horizontal
                     if dy == screen.y {
                         // dock is on the top
-                        ba.0 = dh;
+                        ba.up = dh;
                     } else {
                         // dock is on the bottom
-                        ba.2 = dh;
+                        ba.down = dh;
                     }
                 } else {
                     // dock is vertical
                     if dx == screen.x {
                         // dock is on the left
-                        ba.3 = dw;
+                        ba.left = dw;
                     } else {
                         // dock is on the right
-                        ba.1 = dw;
+                        ba.right = dw;
                     }
                 }
                 screen.bar_offsets = ba;
@@ -886,19 +887,19 @@ fn detach_dock(app: &mut ApplicationContainer, win: u64) {
                     // dock is horizontal
                     if dy == screen.y {
                         // dock is on the top
-                        ba.0 = 0;
+                        ba.up = 0;
                     } else {
                         // dock is on the bottom
-                        ba.2 = 0;
+                        ba.down = 0;
                     }
                 } else {
                     // dock is vertical
                     if dx == screen.x {
                         // dock is on the left
-                        ba.3 = 0;
+                        ba.left = 0;
                     } else {
                         // dock is on the right
-                        ba.1 = 0;
+                        ba.right = 0;
                     }
                 }
                 screen.bar_offsets = ba;
@@ -941,7 +942,7 @@ fn arrange(app: &mut ApplicationContainer) {
     for screen in &mut ws.screens {
         // Usable screen
         let ba = screen.bar_offsets;
-        let screen_height = screen.height - (ba.0 + ba.2) as i64;
+        let screen_height = screen.height - (ba.up + ba.down) as i64;
         // Gap width
         let gw = app.config.gap_width as i32;
         let bs = app.config.border_size as u32;
@@ -974,7 +975,7 @@ fn arrange(app: &mut ApplicationContainer) {
             if stack_size == 1 {
                 // if only one window selected, just show it
                 client.x = 0;
-                client.y = ba.0 as i32;
+                client.y = ba.up as i32;
                 client.w = screen.width as u32;
                 client.h = screen_height as u32;
             } else if (index as i64) < master_capacity {
@@ -986,7 +987,7 @@ fn arrange(app: &mut ApplicationContainer) {
                 // Add gap offset to the left
                 client.x = gw;
                 // Top gap + clients with their gaps offset
-                client.y = ba.0 as i32 + gw + (win_height as i32 + gw) * index as i32;
+                client.y = ba.up as i32 + gw + (win_height as i32 + gw) * index as i32;
                 client.w = master_width - 2 * bs;
                 client.h = win_height as u32 - 2 * bs
             } else {
@@ -997,7 +998,7 @@ fn arrange(app: &mut ApplicationContainer) {
                     (screen_height - gw as i64 - (stack_size as i64 - master_capacity) * gw as i64)
                         / (stack_size as i64 - master_capacity);
                 client.x = master_width as i32 + (gw * 2);
-                client.y = ba.0 as i32
+                client.y = ba.up as i32
                     + gw
                     + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
                 client.w = stack_width as u32 - 2 * bs;
@@ -1276,7 +1277,9 @@ fn spawn(app: &mut ApplicationContainer, cmd: String) {
                 ];
                 let _ = nix::unistd::execvp(args[0], &args);
             }
-            Err(_) => println!("Fork Failed"),
+            Err(_) => {
+                log!("Fork Failed");
+            }
         }
     }
 }
@@ -1585,6 +1588,139 @@ fn unfocus(app: &mut ApplicationContainer, win: u64) {
     ungrab_button(app.runtime.display, AnyButton as u32, AnyModifier, win);
 }
 
+fn move_mouse(app: &mut ApplicationContainer, me: XMotionEvent) {
+    log!("    |- Moving");
+
+    let mw: u64 = app.runtime.mouse_state.win;
+
+    if let Some((s, w, c)) = find_window_indexes(app, mw) {
+        let (mx, my) = (me.x_root as i64, me.y_root as i64);
+        let (px, py) = app.runtime.mouse_state.pos;
+        let (dx, dy) = (mx - px, my - py);
+
+        let (sbl, sbu, sbr, sbd) = {
+            let s = &app.runtime.screens[s];
+            let sbl = s.x + s.bar_offsets.left as i64;
+            let sbu = s.y + s.bar_offsets.up as i64;
+            let sbr = s.x + s.width - s.bar_offsets.right as i64;
+            let sbd = s.y + s.height - s.bar_offsets.down as i64;
+            (sbl, sbu, sbr, sbd)
+        };
+
+        let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
+        let mut nx = cc.x + dx as i32;
+        let mut ny = cc.y + dy as i32;
+
+        // Stick to screen border
+        let stick = 50;
+        let unstick = 30 as i64;
+
+        if (nx < sbl as i32 + stick)
+            && (dx < 0 && nx > (sbl - unstick) as i32
+                || nx > sbl as i32 && nx < (sbl + unstick) as i32)
+        {
+            nx = sbl as i32;
+        }
+        if (nx + cc.w as i32) > sbr as i32 - stick
+            && (dx > 0 && (nx + cc.w as i32) < (sbr + unstick) as i32
+                || (nx + cc.w as i32) < sbr as i32 && (nx + cc.w as i32) > (sbr - unstick) as i32)
+        {
+            nx = sbr as i32 - cc.w as i32 - 2 * app.config.border_size as i32;
+        }
+
+        if ny < sbu as i32 + stick
+            && (dy < 0 && ny > (sbu - unstick) as i32
+                || ny > sbu as i32 && ny < (sbu + unstick) as i32)
+        {
+            ny = sbu as i32;
+        }
+        if (ny + cc.h as i32) > sbd as i32 - stick
+            && (dy > 0 && (ny + cc.h as i32) < (sbd + unstick) as i32
+                || (ny + cc.h as i32) < sbd as i32 && (ny + cc.h as i32) > (sbd - unstick) as i32)
+        {
+            ny = sbd as i32 - cc.h as i32 - 2 * app.config.border_size as i32;
+        }
+
+        // Unstick from border
+
+        if cc.x != nx {
+            app.runtime.mouse_state.pos.0 = mx;
+        }
+
+        if cc.y != ny {
+            app.runtime.mouse_state.pos.1 = my;
+        }
+
+        cc.x = nx;
+        cc.y = ny;
+        move_resize_window(app.runtime.display, mw, cc.x, cc.y, cc.w, cc.h);
+    }
+}
+
+fn resize_mouse(app: &mut ApplicationContainer, me: XMotionEvent) {
+    log!("    |- Resizing");
+
+    let (mx, my) = (me.x_root as i64, me.y_root as i64);
+
+    let (px, py) = app.runtime.mouse_state.pos;
+    let (dx, dy) = (mx - px, my - py);
+    app.runtime.mouse_state.pos = (mx, my);
+    let mw: u64 = app.runtime.mouse_state.win;
+
+    if let Some((s, w, c)) = find_window_indexes(app, mw) {
+        let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
+        let mut nw = cc.w as i32;
+        let mut nh = cc.h as i32;
+        if (nw + dx as i32) > cc.minw {
+            if cc.maxw == 0 || cc.maxw > 0 && (nw + dx as i32) < cc.maxw {
+                nw += dx as i32;
+            }
+        };
+        if (nh + dy as i32) > cc.minh {
+            if cc.maxh == 0 || cc.maxh > 0 && (nh + dy as i32) < cc.maxh {
+                nh += dy as i32;
+            }
+        }
+        cc.w = nw as u32;
+        cc.h = nh as u32;
+        move_resize_window(app.runtime.display, mw, cc.x, cc.y, cc.w, cc.h);
+    }
+}
+
+fn screen_mouse(app: &mut ApplicationContainer, me: XMotionEvent) {
+    log!("    |- Moving on root");
+
+    let (mx, my) = (me.x_root as i64, me.y_root as i64);
+
+    for screen in &app.runtime.screens {
+        if screen.x <= mx
+            && mx < screen.x + screen.width
+            && screen.y <= my
+            && my < screen.y + screen.height
+        {
+            // Update trackers
+            app.runtime.current_screen = screen.number as usize;
+            app.runtime.current_workspace =
+                app.runtime.screens[app.runtime.current_screen].current_workspace;
+            app.runtime.current_client = app.runtime.screens[app.runtime.current_screen].workspaces
+                [app.runtime.current_workspace]
+                .current_client;
+            let w = app.runtime.current_workspace + app.runtime.current_screen * 10;
+
+            change_property(
+                app.runtime.display,
+                app.runtime.root_win,
+                app.atoms.net_current_desktop,
+                XA_CARDINAL,
+                32,
+                PropModeReplace,
+                &w as *const usize as *mut usize as *mut u8,
+                1,
+            );
+        }
+    }
+}
+
 // -----------------------------------------------------------------------------
 //                                    Events
 // -----------------------------------------------------------------------------
@@ -1687,117 +1823,22 @@ fn unmap_notify(app: &mut ApplicationContainer, ev: Event) {
 
 fn motion_notify(app: &mut ApplicationContainer, ev: Event) {
     log!("|- `Motion` detected");
-    let p = ev.motion.unwrap();
-    let (x, y) = (p.x_root as i64, p.y_root as i64);
+    let me = ev.motion.unwrap();
     if app.runtime.mouse_state.button == Button1 {
-        println!("    |- Moving");
-        let dx: i64;
-        let dy: i64;
-        let mw: u64;
-        {
-            let ms = &mut app.runtime.mouse_state;
-            dx = x - ms.pos.0;
-            dy = y - ms.pos.1;
-            mw = ms.win;
-            ms.pos = (x, y);
-        }
-        if let Some((s, w, c)) = find_window_indexes(app, mw) {
-            let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
-            let ox = cc.x;
-            let oy = cc.y;
-            cc.x += dx as i32;
-            cc.y += dy as i32;
-            move_resize_window(
-                app.runtime.display,
-                mw,
-                ox + dx as i32,
-                oy + dy as i32,
-                cc.w,
-                cc.h,
-            );
-        }
+        move_mouse(app, me);
     }
     if app.runtime.mouse_state.button == Button3 {
-        println!("    |- Resizing");
-        let dx: i64;
-        let dy: i64;
-        let mw: u64;
-        {
-            let ms = &mut app.runtime.mouse_state;
-            dx = x - ms.pos.0;
-            dy = y - ms.pos.1;
-            mw = ms.win;
-            ms.pos = (x, y);
-        }
-        if let Some((s, w, c)) = find_window_indexes(app, mw) {
-            let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
-            let ow = cc.w;
-            let oh = cc.h;
-            if dx > 0 {
-                cc.w += dx as u32;
-            } else {
-                cc.w -= -dx as u32;
-            }
-            if dy > 0 {
-                cc.h += dy as u32;
-            } else {
-                cc.h -= -dy as u32;
-            }
-            move_resize_window(
-                app.runtime.display,
-                mw,
-                cc.x,
-                cc.y,
-                (ow as i64 + dx) as u32,
-                (oh as i64 + dy) as u32,
-            );
-        }
+        resize_mouse(app, me);
     }
-    for screen in &app.runtime.screens {
-        if screen.x <= x
-            && x < screen.x + screen.width
-            && screen.y <= y
-            && y < screen.y + screen.height
-        {
-            // Update trackers
-            app.runtime.current_screen = screen.number as usize;
-            app.runtime.current_workspace =
-                app.runtime.screens[app.runtime.current_screen].current_workspace;
-            app.runtime.current_client = app.runtime.screens[app.runtime.current_screen].workspaces
-                [app.runtime.current_workspace]
-                .current_client;
-            let w = app.runtime.current_workspace + app.runtime.current_screen * 10;
-
-            change_property(
-                app.runtime.display,
-                app.runtime.root_win,
-                app.atoms.net_current_desktop,
-                XA_CARDINAL,
-                32,
-                PropModeReplace,
-                &w as *const usize as *mut usize as *mut u8,
-                1,
-            );
-        }
+    if me.window == app.runtime.root_win {
+        screen_mouse(app, me);
     }
 }
 
 fn property_notify(app: &mut ApplicationContainer, ev: Event) {
-    // Safely retrive event struct
     let p = ev.property.unwrap();
-    // log!("|- Got `PropertyNotify`");
-    let prop_name = get_atom_name(app.runtime.display, p.atom);
-    // If current window is not root proceed to updating name
     if p.window != app.runtime.root_win {
-        //log!(
-        //    "   |- Property: `{}` changed for window `{}`({})",
-        //    prop_name,
-        //    get_client_name(app, p.window),
-        //    p.window
-        //);
         update_client_name(app, p.window);
-    } else {
-        //log!("   |- Property `{}` change for root window", prop_name);
     }
 }
 
@@ -1906,7 +1947,7 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
 
             if resized {
                 client.x = (sw - (client.w as i32)) / 2;
-                client.y = (sh - (ba.0 as i32) - (client.h as i32)) / 2;
+                client.y = (sh - (ba.up as i32) - (client.h as i32)) / 2;
 
                 move_resize_window(
                     app.runtime.display,
@@ -1939,7 +1980,7 @@ fn configure_request(app: &mut ApplicationContainer, ev: Event) {
 
 fn button_press(app: &mut ApplicationContainer, ev: Event) {
     let bp = ev.button.unwrap();
-    println!("|- Got `ButtonPress` event");
+    log!("|- Got `ButtonPress` event");
     if let Some((s, w, c)) = find_window_indexes(app, bp.window) {
         let cc = &app.runtime.screens[s].workspaces[w].clients[c];
         if cc.floating {
@@ -1959,7 +2000,7 @@ fn button_press(app: &mut ApplicationContainer, ev: Event) {
     }
 }
 fn button_release(app: &mut ApplicationContainer, _ev: Event) {
-    println!("|- Got `ButtonRelease` event");
+    log!("|- Got `ButtonRelease` event");
     app.runtime.mouse_state = MouseState {
         win: 0,
         button: 0,

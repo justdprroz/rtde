@@ -117,7 +117,15 @@ pub struct Screen {
     pub height: i64,
     pub workspaces: Vec<Workspace>,
     pub current_workspace: usize,
-    pub bar_offsets: (usize, usize, usize, usize), // up, right, bottom, left
+    pub bar_offsets: BarOffsets,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BarOffsets {
+    pub left: usize,
+    pub up: usize,
+    pub right: usize,
+    pub down: usize,
 }
 
 #[derive(Debug, Clone)]
