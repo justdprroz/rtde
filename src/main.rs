@@ -1116,13 +1116,16 @@ fn shift_current_client(
             }
         }
     };
-    // update secondary tracker
-    ws.current_client = ws.screens[screen].workspaces[workspace].current_client;
-    if let Some(index) = ws.current_client {
-        let win = ws.screens[screen].workspaces[workspace].clients[index].window_id;
-        set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
+    // Only do global changes if current_workspace is equal to workspace we shifting!
+    if workspace == ws.current_workspace {
+        // update secondary tracker
+        ws.current_client = ws.screens[screen].workspaces[workspace].current_client;
+        if let Some(index) = ws.current_client {
+            let win = ws.screens[screen].workspaces[workspace].clients[index].window_id;
+            set_input_focus(ws.display, win, RevertToPointerRoot, CurrentTime);
+        }
+        update_active_window(app);
     }
-    update_active_window(app);
 }
 
 /// Safely sends atom to X server
@@ -1565,18 +1568,18 @@ fn focus(app: &mut ApplicationContainer, win: u64) {
     grab_button(app.runtime.display, win, Button1, ModKey);
     grab_button(app.runtime.display, win, Button3, ModKey);
 
-    // let w = app.runtime.current_workspace + app.runtime.current_screen * 10;
-    //
-    // change_property(
-    //     app.runtime.display,
-    //     app.runtime.root_win,
-    //     app.atoms.net_current_desktop,
-    //     XA_CARDINAL,
-    //     32,
-    //     PropModeReplace,
-    //     &w as *const usize as *mut usize as *mut u8,
-    //     1,
-    // );
+    let w = app.runtime.current_workspace + app.runtime.current_screen * 10;
+
+    change_property(
+        app.runtime.display,
+        app.runtime.root_win,
+        app.atoms.net_current_desktop,
+        XA_CARDINAL,
+        32,
+        PropModeReplace,
+        &w as *const usize as *mut usize as *mut u8,
+        1,
+    );
 }
 
 fn unfocus(app: &mut ApplicationContainer, win: u64) {
@@ -1594,6 +1597,10 @@ fn move_mouse(app: &mut ApplicationContainer, me: XMotionEvent) {
     let mw: u64 = app.runtime.mouse_state.win;
 
     if let Some((s, w, c)) = find_window_indexes(app, mw) {
+        let sx = app.runtime.screens[s].x as i32;
+        let sy = app.runtime.screens[s].y as i32;
+        let sw = app.runtime.screens[s].width as i32;
+        let sh = app.runtime.screens[s].height as i32;
         let (mx, my) = (me.x_root as i64, me.y_root as i64);
         let (px, py) = app.runtime.mouse_state.pos;
         let (dx, dy) = (mx - px, my - py);
@@ -1653,7 +1660,21 @@ fn move_mouse(app: &mut ApplicationContainer, me: XMotionEvent) {
 
         cc.x = nx;
         cc.y = ny;
-        move_resize_window(app.runtime.display, mw, cc.x, cc.y, cc.w, cc.h);
+
+        if cc.x < 0 {
+            cc.x = 0;
+        }
+        if cc.y < 0 {
+            cc.y = 0;
+        }
+        if (cc.x + cc.w as i32) > sw {
+            cc.x = sw - cc.w as i32;
+        }
+        if (cc.y + cc.h as i32) > sh {
+            cc.y = sh - cc.h as i32;
+        }
+
+        move_resize_window(app.runtime.display, mw, cc.x + sx, cc.y + sy, cc.w, cc.h);
     }
 }
 
@@ -1668,6 +1689,8 @@ fn resize_mouse(app: &mut ApplicationContainer, me: XMotionEvent) {
     let mw: u64 = app.runtime.mouse_state.win;
 
     if let Some((s, w, c)) = find_window_indexes(app, mw) {
+        let sox = (app.runtime.screens[s].x) as i32;
+        let soy = (app.runtime.screens[s].y) as i32;
         let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
         let mut nw = cc.w as i32;
         let mut nh = cc.h as i32;
@@ -1683,7 +1706,7 @@ fn resize_mouse(app: &mut ApplicationContainer, me: XMotionEvent) {
         }
         cc.w = nw as u32;
         cc.h = nh as u32;
-        move_resize_window(app.runtime.display, mw, cc.x, cc.y, cc.w, cc.h);
+        move_resize_window(app.runtime.display, mw, cc.x + sox, cc.y + soy, cc.w, cc.h);
     }
 }
 
@@ -1989,6 +2012,7 @@ fn button_press(app: &mut ApplicationContainer, ev: Event) {
                 button: bp.button,
                 pos: (bp.x_root as i64, bp.y_root as i64),
             };
+            println!("{:?}", app.runtime.mouse_state.pos);
             if bp.button == Button3 {
                 warp_pointer_win(app.runtime.display, bp.window, cc.w as i32, cc.h as i32);
                 app.runtime.mouse_state.pos = (
