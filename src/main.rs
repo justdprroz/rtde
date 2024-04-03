@@ -6,9 +6,11 @@
 //! - Stack layout
 //! - Shortcuts
 
+mod config;
 mod structs;
 mod wrap;
 
+use crate::config::*;
 use crate::structs::*;
 use crate::wrap::xinerama::*;
 use crate::wrap::xlib::*;
@@ -61,6 +63,7 @@ use x11::xlib::CWY;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_CARDINAL;
 use x11::xlib::XA_WINDOW;
+use ActionResult::*;
 
 fn argb_to_int(c: Color) -> u64 {
     (c.alpha as u64) << 24 | (c.red as u64) << 16 | (c.green as u64) << 8 | (c.blue as u64)
@@ -127,23 +130,7 @@ fn setup() -> ApplicationContainer {
     let display = open_display(None).expect("Failed to open display");
 
     let mut app = ApplicationContainer {
-        config: ConfigurationContainer {
-            gap_width: 4,
-            border_size: 2,
-            normal_border_color: Color {
-                alpha: 255,
-                red: 64,
-                green: 64,
-                blue: 128,
-            },
-            active_border_color: Color {
-                alpha: 255,
-                red: 126,
-                green: 36,
-                blue: 135,
-            },
-            key_actions: Vec::new(),
-        },
+        config: config(),
         runtime: RuntimeContainer {
             display,
             root_win: 0,
@@ -187,10 +174,12 @@ fn setup() -> ApplicationContainer {
 
     app.runtime.root_win = default_root_window(app.runtime.display);
 
-    init_actions(&mut app);
     init_supported_atoms(&mut app);
     init_wm_check(&mut app);
     init_screens(&mut app);
+    init_desktops(&mut app);
+    init_actions(&mut app);
+    arrange(&mut app);
     set_error_handler();
 
     let mut wa: XSetWindowAttributes = XSetWindowAttributes {
@@ -282,156 +271,6 @@ fn init_wm_check(app: &mut ApplicationContainer) {
 }
 
 fn init_actions(app: &mut ApplicationContainer) {
-    let actions: Vec<KeyAction> = {
-        use ActionResult::*;
-
-        let terminal: String = "kitty".to_string();
-        let file_manager: String = "thunar".to_string();
-        let app_launcher: String = "dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b".to_string();
-        let screenshot: String = "screenshot".to_string();
-
-        let mut a = vec![
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_Return,
-                result: Spawn(terminal),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_e,
-                result: Spawn(file_manager),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_p,
-                result: Spawn(app_launcher),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioRaiseVolume,
-                result: Spawn("volumeup".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioLowerVolume,
-                result: Spawn("volumedown".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioMute,
-                result: Spawn("volumemute".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioPlay,
-                result: Spawn("playerctl play-pause".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioNext,
-                result: Spawn("playerctl next".to_string()),
-            },
-            KeyAction {
-                modifier: 0,
-                keysym: XF86XK_AudioPrev,
-                result: Spawn("playerctl previous".to_string()),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_s,
-                result: Spawn(screenshot),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_q,
-                result: Quit,
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_c,
-                result: KillClient,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_w,
-                result: DumpInfo,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_comma,
-                result: FocusOnScreen(ScreenSwitching::Previous),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_period,
-                result: FocusOnScreen(ScreenSwitching::Next),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_comma,
-                result: MoveToScreen(ScreenSwitching::Previous),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_period,
-                result: MoveToScreen(ScreenSwitching::Next),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_i,
-                result: UpdateMasterCapacity(1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_d,
-                result: UpdateMasterCapacity(-1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_l,
-                result: UpdateMasterWidth(0.05),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_h,
-                result: UpdateMasterWidth(-0.05),
-            },
-            KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: XK_space,
-                result: ToggleFloat,
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_j,
-                result: CycleStack(-1),
-            },
-            KeyAction {
-                modifier: ModKey,
-                keysym: XK_k,
-                result: CycleStack(1),
-            },
-        ];
-
-        for (index, key) in [XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0]
-            .iter()
-            .enumerate()
-        {
-            a.push(KeyAction {
-                modifier: ModKey,
-                keysym: *key,
-                result: FocusOnWorkspace(index as u64),
-            });
-            a.push(KeyAction {
-                modifier: ModKey | ShiftMask,
-                keysym: *key,
-                result: MoveToWorkspace(index as u64),
-            });
-        }
-        a
-    };
-
-    app.config.key_actions = actions;
     for action in app.config.key_actions.iter() {
         grab_key(app.runtime.display, action.keysym, action.modifier);
     }
@@ -496,73 +335,35 @@ fn init_supported_atoms(app: &mut ApplicationContainer) {
 }
 
 fn init_screens(app: &mut ApplicationContainer) {
-    let mut desktop_names = vec![];
-    let mut viewports: Vec<i64> = vec![];
-    let mut workspaces: u64 = 0;
-
     let n = app.runtime.screens.len();
     let screens = xinerama_query_screens(app.runtime.display)
         .expect("Running without xinerama is not supported");
     let screens_amount = screens.len();
 
-    log!("   |- Add new empty screens");
-    for i in n..screens_amount {
-        log!("      |- Adding screen `{}`", i);
+    for _ in n..screens_amount {
         app.runtime.screens.push(Screen {
             number: 0,
             x: 0,
             y: 0,
             width: 0,
             height: 0,
-            workspaces: {
-                let mut wv = Vec::new();
-                for i in 0..10 {
-                    wv.push(Workspace {
-                        number: i,
-                        clients: Vec::new(),
-                        current_client: None,
-                        master_capacity: 1,
-                        master_width: 0.5,
-                    });
-                }
-                wv
-            },
+            workspaces: vec![],
             current_workspace: 0,
             bar_offsets: BarOffsets::default(),
         })
     }
 
-    log!(
-        "   |- Update all present screens geometries. Amount of screens: {}/{}",
-        screens.len(),
-        app.runtime.screens.len()
-    );
     for (index, screen) in screens.iter().enumerate() {
-        log!(
-            "      |- Updating geometry for screen `{}` index:({})",
-            screen.screen_number,
-            index
-        );
         app.runtime.screens[index].number = screen.screen_number as i64;
         app.runtime.screens[index].x = screen.x_org as i64;
         app.runtime.screens[index].y = screen.y_org as i64;
         app.runtime.screens[index].width = screen.width as i64;
         app.runtime.screens[index].height = screen.height as i64;
-        log!("         |- Basic info updated");
-        for i in 0..app.runtime.screens[index].workspaces.len() {
-            desktop_names.push(format!("{}", i + 1));
-            viewports.push(screen.x_org as i64);
-            viewports.push(screen.y_org as i64);
-            workspaces += 1;
-        }
-        log!("         |- Workspaces properties updated");
     }
 
-    log!("   |- Remove exceeded screens");
-    for i in screens_amount..n {
-        log!("      |- Removing screen `{}`", i);
-        let lsw = app.runtime.screens.pop().unwrap().workspaces;
-        for (index, workspace) in lsw.into_iter().enumerate() {
+    for _ in screens_amount..n {
+        let removed_workspaces = app.runtime.screens.pop().unwrap().workspaces;
+        for (index, workspace) in removed_workspaces.into_iter().enumerate() {
             for client in workspace.clients {
                 update_client_desktop(app, client.window_id, index as u64);
                 app.runtime.screens[0].workspaces[index]
@@ -571,6 +372,47 @@ fn init_screens(app: &mut ApplicationContainer) {
             }
         }
     }
+}
+
+fn init_desktops(app: &mut ApplicationContainer) {
+    // let mut desktop_names_type = 0; // 0 - number, 1 - short name, 2 - number + short name
+
+    let mut desktop_names_ewmh: Vec<String> = vec![];
+    let mut viewports: Vec<i64> = vec![];
+
+    // Iterate over all screens
+    for (index, screen) in app.runtime.screens.iter_mut().enumerate() {
+        if screen.workspaces.is_empty() {
+            for i in 0..NUMBER_OF_DESKTOPS {
+                screen.workspaces.push(Workspace {
+                    number: i as u64,
+                    clients: Vec::new(),
+                    current_client: None,
+                    master_capacity: 1,
+                    master_width: 0.5,
+                });
+            }
+        }
+        for i in 0..screen.workspaces.len() {
+            if index < app.config.desktops.names.len() {
+                desktop_names_ewmh.push(format!("{}", app.config.desktops.names[index][i]));
+            } else {
+                desktop_names_ewmh.push(format!("{}", i + 1));
+            }
+            viewports.push(screen.x as i64);
+            viewports.push(screen.y as i64);
+        }
+    }
+    init_desktop_ewmh_info(app, desktop_names_ewmh, viewports);
+}
+
+fn init_desktop_ewmh_info(
+    app: &mut ApplicationContainer,
+    names: Vec<String>,
+    mut viewports: Vec<i64>,
+) {
+    // Update EWMH desktop properties
+
     // Set amount of workspaces
     change_property(
         app.runtime.display,
@@ -579,12 +421,12 @@ fn init_screens(app: &mut ApplicationContainer) {
         XA_CARDINAL,
         32,
         PropModeReplace,
-        &mut workspaces as *mut u64 as *mut u8,
+        &mut names.len() as *mut usize as *mut u8,
         1,
     );
 
     // Set workspaces names
-    let mut bytes = vec_string_to_bytes(desktop_names);
+    let mut bytes = vec_string_to_bytes(names);
     change_property(
         app.runtime.display,
         app.runtime.root_win,
@@ -607,7 +449,6 @@ fn init_screens(app: &mut ApplicationContainer) {
         viewports.as_mut_ptr() as *mut u8,
         viewports.len() as i32,
     );
-    arrange(app);
 }
 
 fn update_client_desktop(app: &mut ApplicationContainer, win: u64, desk: u64) {

@@ -1,3 +1,5 @@
+use crate::config::NUMBER_OF_DESKTOPS;
+
 pub struct ApplicationContainer {
     pub config: ConfigurationContainer,
     pub runtime: RuntimeContainer,
@@ -10,6 +12,21 @@ pub struct ConfigurationContainer {
     pub border_size: usize,
     pub normal_border_color: Color,
     pub active_border_color: Color,
+    pub desktops: DesktopsConfig,
+}
+
+pub struct DesktopsConfig {
+    pub keysyms: [u32; NUMBER_OF_DESKTOPS],
+    pub names: Vec<[String; NUMBER_OF_DESKTOPS]>,
+}
+
+impl DesktopsConfig {
+    pub fn new() -> DesktopsConfig {
+        DesktopsConfig {
+            keysyms: [0; NUMBER_OF_DESKTOPS],
+            names: vec![],
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
