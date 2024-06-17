@@ -22,6 +22,7 @@ use std::vec;
 use x11::keysym::*;
 use x11::xlib::AnyButton;
 use x11::xlib::AnyModifier;
+use x11::xlib::AnyPropertyType;
 use x11::xlib::Atom;
 use x11::xlib::Button1;
 use x11::xlib::Button2;
@@ -54,6 +55,7 @@ use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::Success;
+use x11::xlib::XGetWindowProperty;
 use x11::xlib::XMotionEvent;
 use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XWindowAttributes;
@@ -570,6 +572,8 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
     let state = get_atom_prop(app, win, app.atoms.net_wm_state);
     let wtype = get_atom_prop(app, win, app.atoms.net_wm_window_type);
 
+    update_normal_hints(app, &mut c);
+
     if state == app.atoms.net_wm_fullscreen {
         c.floating = true;
         c.fullscreen = true;
@@ -582,7 +586,12 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         c.floating = c.fixed || trans != 0;
     }
 
-    update_normal_hints(app, &mut c);
+    log!(
+        "Window: {} floating: {}, fixed: {}",
+        c.window_id,
+        c.floating,
+        c.fixed
+    );
 
     // Set input mask
     select_input(
@@ -600,14 +609,65 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
             argb_to_int(app.config.normal_border_color),
         );
     }
+
+    let client_desktop: Option<u64>;
+    unsafe {
+        let mut actual_type: Atom = 0;
+        let mut actual_format: i32 = 0;
+        let mut nitems: u64 = 0;
+        let mut bytes_after: u64 = 0;
+        let mut prop: *mut u8 = std::ptr::null_mut();
+        XGetWindowProperty(
+            app.runtime.display,
+            win,
+            app.atoms.net_wm_desktop,
+            0,
+            size_of::<Atom>() as i64,
+            0,
+            XA_CARDINAL,
+            &mut actual_type as *mut Atom,
+            &mut actual_format as *mut i32,
+            &mut nitems as *mut u64,
+            &mut bytes_after as *mut u64,
+            &mut prop as *mut *mut u8,
+        );
+        client_desktop = if actual_type != 0 {
+            log!("   |- Window property:");
+            log!(
+                "      |- Type: {}",
+                get_atom_name(app.runtime.display, actual_type)
+            );
+            log!("      |- Items: {}", nitems);
+            log!("      |- Format: {}", actual_format);
+            log!("      |- Data: {}", *prop as u64);
+            Some(*prop as u64)
+        } else {
+            None
+        }
+    }
+
     // Get current workspace
-    let w = &mut app.runtime.screens[app.runtime.current_screen].workspaces
-        [app.runtime.current_workspace];
+    let (client_screen, client_workspace) = match client_desktop {
+        Some(d) => {
+            let s = d as usize / 10;
+            let w = d as usize % 10;
+            if s < app.runtime.screens.len() && w < app.runtime.screens[s].workspaces.len() {
+                (s, w)
+            } else {
+                (app.runtime.current_screen, app.runtime.current_workspace)
+            }
+        }
+        None => (app.runtime.current_screen, app.runtime.current_workspace),
+    };
+
+    let w = &mut app.runtime.screens[client_screen].workspaces[client_workspace];
+
     // Update client tracker
     w.current_client = Some(w.clients.len());
     app.runtime.current_client = w.current_client;
     // Push to stack
     w.clients.push(c);
+
     // Add window to wm _NET_CLIENT_LIST
     change_property(
         app.runtime.display,
@@ -620,7 +680,7 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
         1,
     );
 
-    let cur_workspace: usize = app.runtime.current_workspace + app.runtime.current_screen * 10;
+    let cur_workspace: usize = client_workspace + client_screen * 10;
 
     update_client_desktop(app, win, cur_workspace as u64);
 
@@ -1086,10 +1146,27 @@ fn update_active_window(app: &mut ApplicationContainer) {
 }
 
 fn get_current_client_id(app: &mut ApplicationContainer) -> Option<u64> {
-    let ws = &app.runtime;
-    ws.current_client.map(|index| {
-        ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients[index].window_id
-    })
+    let client_index = match app.runtime.current_client {
+        Some(index) => index,
+        None => return None,
+    };
+
+    let screen = match app.runtime.screens.get(app.runtime.current_screen) {
+        Some(s) => s,
+        None => return None,
+    };
+
+    let workspace = match screen.workspaces.get(app.runtime.current_workspace) {
+        Some(w) => w,
+        None => return None,
+    };
+
+    let client = match workspace.clients.get(client_index) {
+        Some(c) => c,
+        None => return None,
+    };
+
+    return Some(client.window_id);
 }
 
 fn update_trackers(app: &mut ApplicationContainer, win: u64) {
