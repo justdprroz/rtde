@@ -29,7 +29,7 @@ pub fn config() -> ConfigurationContainer {
     };
 
     // Setup shortcuts "Key Actions"
-    let terminal: String = "kitty".to_string();
+    let terminal: String = "alacritty".to_string();
     let file_manager: String = "thunar".to_string();
     let app_launcher: String = "dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b".to_string();
     let screenshot: String = "screenshot".to_string();
@@ -156,13 +156,12 @@ pub fn config() -> ConfigurationContainer {
             result: CycleStack(1),
         },
     ]);
+
     // Setup desktop names
     c.desktops.keysyms = [XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0];
 
-    c.desktops.names = vec![[
-        "Term", "Firefox", "Files", "Telegram", "OBS", "6", "7", "8", "Spotify", "Sound",
-    ]
-    .map(|s| s.to_string())];
+    c.desktops.names =
+        vec![["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(|s| s.to_string())];
 
     for (i, k) in c.desktops.keysyms.iter().enumerate() {
         c.key_actions.push(KeyAction {
