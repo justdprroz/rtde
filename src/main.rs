@@ -567,12 +567,16 @@ fn manage_client(app: &mut ApplicationContainer, win: u64) {
             .up as i32;
     c.visible = true;
 
+    log!("Client: {:?}", c);
+
     let _reserved = get_transient_for_hint(app.runtime.display, win, &mut trans);
 
     let state = get_atom_prop(app, win, app.atoms.net_wm_state);
     let wtype = get_atom_prop(app, win, app.atoms.net_wm_window_type);
 
     update_normal_hints(app, &mut c);
+
+    log!("Client: {:?}", c);
 
     if state == app.atoms.net_wm_fullscreen {
         c.floating = true;
@@ -1142,6 +1146,14 @@ fn update_active_window(app: &mut ApplicationContainer) {
             &win as *const u64 as *mut u8,
             1,
         );
+    } else {
+        if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
+            .clients
+            .is_empty()
+        {
+            set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
+            delete_property(ws.display, ws.root_win, app.atoms.net_active_window);
+        }
     }
 }
 
@@ -1286,12 +1298,15 @@ fn move_to_screen(app: &mut ApplicationContainer, d: ScreenSwitching) {
 }
 
 fn focus_on_screen_index(app: &mut ApplicationContainer, n: usize) {
+    log!("Focusing on screen");
     if let Some(cw) = get_current_client_id(app) {
+        log!("unfocusing {}", cw);
         set_window_border(
             app.runtime.display,
             cw,
             argb_to_int(app.config.normal_border_color),
         );
+        unfocus(app, cw);
     }
     // Change trackers
     app.runtime.current_screen = n;
@@ -1306,8 +1321,8 @@ fn focus_on_screen_index(app: &mut ApplicationContainer, n: usize) {
             .clients[index]
             .window_id;
         set_input_focus(app.runtime.display, win, RevertToPointerRoot, CurrentTime);
-        update_active_window(app);
     }
+    update_active_window(app);
     if let Some(cw) = get_current_client_id(app) {
         set_window_border(
             app.runtime.display,
@@ -1402,6 +1417,7 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64, r: bool) {
                 cw,
                 argb_to_int(app.config.normal_border_color),
             );
+            unfocus(app, cw);
         }
         // Update workspace index
         app.runtime.current_workspace = n as usize;
@@ -1440,8 +1456,8 @@ fn focus_on_workspace(app: &mut ApplicationContainer, n: u64, r: bool) {
                 .clients[index]
                 .window_id;
             set_input_focus(app.runtime.display, win, RevertToPointerRoot, CurrentTime);
-            update_active_window(app);
         }
+        update_active_window(app);
     }
 }
 
@@ -1747,6 +1763,12 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
             set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
             delete_property(ws.display, ws.root_win, app.atoms.net_active_window);
         }
+    }
+}
+
+fn leave_notify(app: &mut ApplicationContainer, ev: Event) {
+    if let Some(cw) = get_current_client_id(app) {
+        unfocus(app, cw);
     }
 }
 
