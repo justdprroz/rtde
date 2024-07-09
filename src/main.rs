@@ -22,7 +22,6 @@ use std::ptr::null_mut;
 use std::vec;
 use x11::xlib::AnyButton;
 use x11::xlib::AnyModifier;
-use x11::xlib::AnyPropertyType;
 use x11::xlib::Atom;
 use x11::xlib::Button1;
 use x11::xlib::Button3;
@@ -986,13 +985,14 @@ fn find_window_indexes(app: &mut ApplicationContainer, win: u64) -> Option<(usiz
 /// Shows/Hides all windows on current workspace
 fn show_hide_workspace(app: &mut ApplicationContainer) {
     let ws = &mut app.runtime;
+    let window_decoration_offset = app.config.gap_width + app.config.border_size;
     // Iterate over all clients
     for client in &mut ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients {
         move_resize_window(
             ws.display,
             client.window_id,
-            -(client.w as i32),
-            -(client.h as i32),
+            -(client.w as i32 + window_decoration_offset as i32),
+            -(client.h as i32 + window_decoration_offset as i32),
             client.w,
             client.h,
         );
@@ -1790,12 +1790,6 @@ fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
                 delete_property(ws.display, ws.root_win, app.atoms.net_active_window);
             }
         }
-    }
-}
-
-fn leave_notify(app: &mut ApplicationContainer, ev: Event) {
-    if let Some(cw) = get_current_client_id(app) {
-        unfocus(app, cw);
     }
 }
 
