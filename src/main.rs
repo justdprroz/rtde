@@ -17,17 +17,15 @@ use crate::wrap::xlib::*;
 use libc::LC_CTYPE;
 use std::ffi::CString;
 use std::mem::size_of;
+use std::process::exit;
 use std::ptr::null_mut;
 use std::vec;
-use x11::keysym::*;
 use x11::xlib::AnyButton;
 use x11::xlib::AnyModifier;
 use x11::xlib::Atom;
 use x11::xlib::Button1;
-use x11::xlib::Button2;
 use x11::xlib::Button3;
 use x11::xlib::ButtonPressMask;
-use x11::xlib::ButtonReleaseMask;
 use x11::xlib::CWBorderWidth;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
@@ -49,7 +47,6 @@ use x11::xlib::PropModeAppend;
 use x11::xlib::PropModeReplace;
 use x11::xlib::PropertyChangeMask;
 use x11::xlib::RevertToPointerRoot;
-use x11::xlib::ShiftMask;
 use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
@@ -63,7 +60,6 @@ use x11::xlib::CWY;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_CARDINAL;
 use x11::xlib::XA_WINDOW;
-use ActionResult::*;
 
 fn argb_to_int(c: Color) -> u64 {
     (c.alpha as u64) << 24 | (c.red as u64) << 16 | (c.green as u64) << 8 | (c.blue as u64)
@@ -72,8 +68,10 @@ fn argb_to_int(c: Color) -> u64 {
 fn vec_string_to_bytes(strings: Vec<String>) -> Vec<u8> {
     let mut bytes: Vec<u8> = vec![];
     for string in strings {
-        let mut b = CString::new(string).unwrap().into_bytes_with_nul();
-        bytes.append(&mut b);
+        match CString::new(string) {
+            Ok(c) => bytes.append(&mut c.into_bytes_with_nul()),
+            Err(_) => todo!(),
+        }
     }
     bytes
 }
@@ -127,7 +125,13 @@ const EVENT_LOOKUP: [&str; 37] = [
 
 fn setup() -> ApplicationContainer {
     log!("|===== setup =====");
-    let display = open_display(None).expect("Failed to open display");
+    let display = match open_display(None) {
+        Some(d) => d,
+        None => {
+            eprintln!("Failed to open display");
+            exit(1);
+        }
+    };
 
     let mut app = ApplicationContainer {
         config: config(),
@@ -246,7 +250,13 @@ fn init_wm_check(app: &mut ApplicationContainer) {
         1,
     );
 
-    let wm_name = std::ffi::CString::new("rtwm".to_string()).unwrap();
+    let wm_name = match std::ffi::CString::new("rtwm".to_string()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error creating name: {}. Exiting", e);
+            exit(1);
+        }
+    };
     change_property(
         app.runtime.display,
         wmchckwin,
@@ -334,10 +344,16 @@ fn init_supported_atoms(app: &mut ApplicationContainer) {
     );
 }
 
+// Improve this code
 fn init_screens(app: &mut ApplicationContainer) {
     let n = app.runtime.screens.len();
-    let screens = xinerama_query_screens(app.runtime.display)
-        .expect("Running without xinerama is not supported");
+    let screens = match xinerama_query_screens(app.runtime.display) {
+        Some(s) => s,
+        None => {
+            eprintln!("Running without xinerama is not supported");
+            exit(1);
+        }
+    };
     let screens_amount = screens.len();
 
     for _ in n..screens_amount {
@@ -362,13 +378,15 @@ fn init_screens(app: &mut ApplicationContainer) {
     }
 
     for _ in screens_amount..n {
-        let removed_workspaces = app.runtime.screens.pop().unwrap().workspaces;
-        for (index, workspace) in removed_workspaces.into_iter().enumerate() {
-            for client in workspace.clients {
-                update_client_desktop(app, client.window_id, index as u64);
-                app.runtime.screens[0].workspaces[index]
-                    .clients
-                    .push(client);
+        if let Some(removed_screen) = app.runtime.screens.pop() {
+            let removed_workspaces = removed_screen.workspaces;
+            for (index, workspace) in removed_workspaces.into_iter().enumerate() {
+                for client in workspace.clients {
+                    update_client_desktop(app, client.window_id, index as u64);
+                    app.runtime.screens[0].workspaces[index]
+                        .clients
+                        .push(client);
+                }
             }
         }
     }
@@ -945,15 +963,16 @@ fn shift_current_client(
             None
         } else {
             // Get old client index
-            let cc = ws.screens[screen].workspaces[workspace]
-                .current_client
-                .expect("error getting client");
-            // If selected client was not last do nothing
-            if cc < clients.len() {
-                Some(cc)
+            if let Some(cc) = ws.screens[screen].workspaces[workspace].current_client {
+                // If selected client was not last do nothing
+                if cc < clients.len() {
+                    Some(cc)
+                } else {
+                    // Else set it to being last
+                    Some(clients.len() - 1)
+                }
             } else {
-                // Else set it to being last
-                Some(clients.len() - 1)
+                None
             }
         }
     };
@@ -1112,12 +1131,15 @@ fn spawn(app: &mut ApplicationContainer, cmd: String) {
             Ok(nix::unistd::ForkResult::Child) => {
                 log!("     |- Hello from child)");
                 if app.runtime.display as *mut x11::xlib::Display as usize != 0 {
-                    nix::unistd::close(x11::xlib::XConnectionNumber(app.runtime.display)).unwrap();
+                    match nix::unistd::close(x11::xlib::XConnectionNumber(app.runtime.display)) {
+                        Ok(_) => {}
+                        Err(_) => {}
+                    };
                 }
                 let args = [
-                    &std::ffi::CString::new("/usr/bin/sh").unwrap(),
-                    &std::ffi::CString::new("-c").unwrap(),
-                    &std::ffi::CString::new(cmd).unwrap(),
+                    &std::ffi::CString::from_vec_unchecked("/usr/bin/sh".as_bytes().to_vec()),
+                    &std::ffi::CString::from_vec_unchecked("-c".as_bytes().to_vec()),
+                    &std::ffi::CString::from_vec_unchecked(cmd.as_bytes().to_vec()),
                 ];
                 let _ = nix::unistd::execvp(args[0], &args);
             }
@@ -1592,274 +1614,288 @@ fn screen_mouse(app: &mut ApplicationContainer, me: XMotionEvent) {
 fn key_press(app: &mut ApplicationContainer, ev: Event) {
     log!("|- Got keyboard event");
     // Safely retrive struct
-    let ev = ev.key.unwrap();
-    // Iterate over key actions matching current key input
-    for action in app.config.key_actions.clone() {
-        if ev.keycode == keysym_to_keycode(app.runtime.display, action.keysym)
-            && ev.state == action.modifier
-        {
-            // Log action type
-            log!("|- Got {:?} action", &action.result);
-            // Match action result and run related function
-            match &action.result {
-                ActionResult::KillClient => {
-                    log!("   |- Got `KillClient` Action");
-                    kill_client(app);
+    if let Some(ev) = ev.key {
+        // Iterate over key actions matching current key input
+        for action in app.config.key_actions.clone() {
+            if ev.keycode == keysym_to_keycode(app.runtime.display, action.keysym)
+                && ev.state == action.modifier
+            {
+                // Log action type
+                log!("|- Got {:?} action", &action.result);
+                // Match action result and run related function
+                match &action.result {
+                    ActionResult::KillClient => {
+                        log!("   |- Got `KillClient` Action");
+                        kill_client(app);
+                    }
+                    ActionResult::Spawn(cmd) => {
+                        log!("   |- Got `Spawn` Action");
+                        spawn(app, cmd.clone());
+                    }
+                    ActionResult::MoveToScreen(d) => {
+                        move_to_screen(app, *d);
+                    }
+                    ActionResult::FocusOnScreen(d) => {
+                        focus_on_screen(app, *d);
+                    }
+                    ActionResult::MoveToWorkspace(n) => {
+                        move_to_workspace(app, *n);
+                    }
+                    ActionResult::FocusOnWorkspace(n) => {
+                        focus_on_workspace(app, *n, true);
+                    }
+                    ActionResult::Quit => {
+                        log!("   |- Got `Quit` Action. `Quiting`");
+                        app.runtime.running = false;
+                    }
+                    ActionResult::UpdateMasterCapacity(i) => {
+                        update_master_capacity(app, *i);
+                    }
+                    ActionResult::UpdateMasterWidth(w) => {
+                        update_master_width(app, *w);
+                    }
+                    ActionResult::DumpInfo => {
+                        log!("{:#?}", &app.runtime);
+                    }
+                    ActionResult::ToggleFloat => {
+                        toggle_float(app);
+                    }
+                    ActionResult::CycleStack(_i) => {}
                 }
-                ActionResult::Spawn(cmd) => {
-                    log!("   |- Got `Spawn` Action");
-                    spawn(app, cmd.clone());
-                }
-                ActionResult::MoveToScreen(d) => {
-                    move_to_screen(app, *d);
-                }
-                ActionResult::FocusOnScreen(d) => {
-                    focus_on_screen(app, *d);
-                }
-                ActionResult::MoveToWorkspace(n) => {
-                    move_to_workspace(app, *n);
-                }
-                ActionResult::FocusOnWorkspace(n) => {
-                    focus_on_workspace(app, *n, true);
-                }
-                ActionResult::Quit => {
-                    log!("   |- Got `Quit` Action. `Quiting`");
-                    app.runtime.running = false;
-                }
-                ActionResult::UpdateMasterCapacity(i) => {
-                    update_master_capacity(app, *i);
-                }
-                ActionResult::UpdateMasterWidth(w) => {
-                    update_master_width(app, *w);
-                }
-                ActionResult::DumpInfo => {
-                    log!("{:#?}", &app.runtime);
-                }
-                ActionResult::ToggleFloat => {
-                    toggle_float(app);
-                }
-                ActionResult::CycleStack(_i) => {}
             }
         }
     }
 }
 
 fn map_request(app: &mut ApplicationContainer, ev: Event) {
-    let ew: u64 = ev.map_request.unwrap().window;
-    log!("|- Map Request From Window: {ew}");
-    manage_client(app, ew);
+    if let Some(mp) = ev.map_request {
+        let ew: u64 = mp.window;
+        log!("|- Map Request From Window: {ew}");
+        manage_client(app, ew);
+    }
 }
 
 fn enter_notify(app: &mut ApplicationContainer, ev: Event) {
-    let ew: u64 = ev.crossing.unwrap().window;
-    log!("|- Crossed Window `{}` ({})", get_client_name(app, ew), ew);
-    if ew != app.runtime.root_win {
-        log!("   |- Setting focus to window");
-        // Focus on crossed window
-        if let Some(cw) = get_current_client_id(app) {
-            unfocus(app, cw);
-        }
-        focus(app, ew);
-    } else {
-        let ws = &mut app.runtime;
+    if let Some(cr) = ev.crossing {
+        let ew: u64 = cr.window;
+        log!("|- Crossed Window `{}` ({})", get_client_name(app, ew), ew);
+        if ew != app.runtime.root_win {
+            log!("   |- Setting focus to window");
+            // Focus on crossed window
+            if let Some(cw) = get_current_client_id(app) {
+                unfocus(app, cw);
+            }
+            focus(app, ew);
+        } else {
+            let ws = &mut app.runtime;
 
-        if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
-            .clients
-            .is_empty()
-        {
-            set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
-            delete_property(ws.display, ws.root_win, app.atoms.net_active_window);
+            if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
+                .clients
+                .is_empty()
+            {
+                set_input_focus(ws.display, ws.root_win, RevertToPointerRoot, CurrentTime);
+                delete_property(ws.display, ws.root_win, app.atoms.net_active_window);
+            }
         }
     }
 }
 
 fn destroy_notify(app: &mut ApplicationContainer, ev: Event) {
-    let ew: u64 = ev.destroy_window.unwrap().window;
-    log!("|- `{}` destroyed", get_client_name(app, ew));
-    unmanage_window(app, ew);
+    if let Some(dw) = ev.destroy_window {
+        let ew: u64 = dw.window;
+        log!("|- `{}` destroyed", get_client_name(app, ew));
+        unmanage_window(app, ew);
+    }
 }
 
 fn unmap_notify(app: &mut ApplicationContainer, ev: Event) {
-    let ew: u64 = ev.unmap.unwrap().window;
-    log!("|- `{}` unmapped", get_client_name(app, ew));
-    unmanage_window(app, ew);
+    if let Some(um) = ev.unmap {
+        let ew: u64 = um.window;
+        log!("|- `{}` unmapped", get_client_name(app, ew));
+        unmanage_window(app, ew);
+    }
 }
 
 fn motion_notify(app: &mut ApplicationContainer, ev: Event) {
-    log!("|- `Motion` detected");
-    let me = ev.motion.unwrap();
-    if app.runtime.mouse_state.button == Button1 {
-        move_mouse(app, me);
-    }
-    if app.runtime.mouse_state.button == Button3 {
-        resize_mouse(app, me);
-    }
-    if me.window == app.runtime.root_win {
-        screen_mouse(app, me);
+    if let Some(me) = ev.motion {
+        log!("|- `Motion` detected");
+        if app.runtime.mouse_state.button == Button1 {
+            move_mouse(app, me);
+        }
+        if app.runtime.mouse_state.button == Button3 {
+            resize_mouse(app, me);
+        }
+        if me.window == app.runtime.root_win {
+            screen_mouse(app, me);
+        }
     }
 }
 
 fn property_notify(app: &mut ApplicationContainer, ev: Event) {
-    let p = ev.property.unwrap();
-    if p.window != app.runtime.root_win {
-        update_client_name(app, p.window);
+    if let Some(p) = ev.property {
+        if p.window != app.runtime.root_win {
+            update_client_name(app, p.window);
+        }
     }
 }
 
 fn configure_notify(app: &mut ApplicationContainer, ev: Event) {
-    let cn = ev.configure.unwrap();
-    if cn.window == app.runtime.root_win {
-        log!("|- Got `ConfigureNotify` for `root window` -> Changing monitor layout");
-        init_screens(app);
-    } else if let Some((s, w, c)) = find_window_indexes(app, cn.window) {
-        let client = &app.runtime.screens[s].workspaces[w].clients[c];
-        log!(
-            "|- Got `ConfigureNotify` of {:?} for `{}`",
-            cn.event,
-            client.window_name
-        );
-    } else {
-        log!("|- Got `ConfigureNotify` from `Unmanaged window`");
+    if let Some(cn) = ev.configure {
+        if cn.window == app.runtime.root_win {
+            log!("|- Got `ConfigureNotify` for `root window` -> Changing monitor layout");
+            init_screens(app);
+        } else if let Some((s, w, c)) = find_window_indexes(app, cn.window) {
+            let client = &app.runtime.screens[s].workspaces[w].clients[c];
+            log!(
+                "|- Got `ConfigureNotify` of {:?} for `{}`",
+                cn.event,
+                client.window_name
+            );
+        } else {
+            log!("|- Got `ConfigureNotify` from `Unmanaged window`");
+        }
     }
 }
 
 fn client_message(app: &mut ApplicationContainer, ev: Event) {
-    let c = ev.client.unwrap();
-    log!("|- Got `Client Message`");
-    if let Some(cc) = find_window_indexes(app, c.window) {
-        let cc = &mut app.runtime.screens[cc.0].workspaces[cc.1].clients[cc.2];
-        log!(
-            "   |- Of type `{}` From: `{}`",
-            get_atom_name(app.runtime.display, c.message_type),
-            cc.window_name
-        );
-        if c.message_type == app.atoms.net_wm_state {
-            if c.data.get_long(1) as u64 == app.atoms.net_wm_fullscreen
-                || c.data.get_long(2) as u64 == app.atoms.net_wm_fullscreen
-            {
-                let sf = c.data.get_long(0) == 1 || c.data.get_long(0) == 2 && cc.fullscreen;
-                if sf && !cc.fullscreen {
-                    change_property(
-                        app.runtime.display,
-                        c.window,
-                        app.atoms.net_wm_state,
-                        XA_ATOM,
-                        32,
-                        PropModeReplace,
-                        &mut app.atoms.net_wm_fullscreen as *mut u64 as *mut u8,
-                        1,
-                    );
-                    cc.fullscreen = true;
-                    arrange(app);
-                } else if !sf && cc.fullscreen {
-                    change_property(
-                        app.runtime.display,
-                        c.window,
-                        app.atoms.net_wm_state,
-                        XA_ATOM,
-                        32,
-                        PropModeReplace,
-                        std::ptr::null_mut::<u8>(),
-                        0,
-                    );
-                    cc.fullscreen = false;
-                    arrange(app);
+    if let Some(c) = ev.client {
+        log!("|- Got `Client Message`");
+        if let Some(cc) = find_window_indexes(app, c.window) {
+            let cc = &mut app.runtime.screens[cc.0].workspaces[cc.1].clients[cc.2];
+            log!(
+                "   |- Of type `{}` From: `{}`",
+                get_atom_name(app.runtime.display, c.message_type),
+                cc.window_name
+            );
+            if c.message_type == app.atoms.net_wm_state {
+                if c.data.get_long(1) as u64 == app.atoms.net_wm_fullscreen
+                    || c.data.get_long(2) as u64 == app.atoms.net_wm_fullscreen
+                {
+                    let sf = c.data.get_long(0) == 1 || c.data.get_long(0) == 2 && cc.fullscreen;
+                    if sf && !cc.fullscreen {
+                        change_property(
+                            app.runtime.display,
+                            c.window,
+                            app.atoms.net_wm_state,
+                            XA_ATOM,
+                            32,
+                            PropModeReplace,
+                            &mut app.atoms.net_wm_fullscreen as *mut u64 as *mut u8,
+                            1,
+                        );
+                        cc.fullscreen = true;
+                        arrange(app);
+                    } else if !sf && cc.fullscreen {
+                        change_property(
+                            app.runtime.display,
+                            c.window,
+                            app.atoms.net_wm_state,
+                            XA_ATOM,
+                            32,
+                            PropModeReplace,
+                            std::ptr::null_mut::<u8>(),
+                            0,
+                        );
+                        cc.fullscreen = false;
+                        arrange(app);
+                    }
+                } else {
+                    log!("      |- Unsupported `state`");
                 }
-            } else {
-                log!("      |- Unsupported `state`");
             }
-        }
-    } else {
-        log!(
-            "   |- Of type `{}`",
-            get_atom_name(app.runtime.display, c.message_type)
-        );
-        if c.message_type == app.atoms.net_current_desktop {
-            focus_on_workspace(app, c.data.get_long(0) as u64, false);
+        } else {
+            log!(
+                "   |- Of type `{}`",
+                get_atom_name(app.runtime.display, c.message_type)
+            );
+            if c.message_type == app.atoms.net_current_desktop {
+                focus_on_workspace(app, c.data.get_long(0) as u64, false);
+            }
         }
     }
 }
 
 fn configure_request(app: &mut ApplicationContainer, ev: Event) {
-    let cr = ev.configure_request.unwrap();
+    if let Some(cr) = ev.configure_request {
+        log!("|- Got `ConfigureRequest` for `{}`", cr.window);
+        if let Some((s, w, c)) = find_window_indexes(app, cr.window) {
+            let sw = app.runtime.screens[s].width as i32;
+            let sh = app.runtime.screens[s].height as i32;
+            let ba = app.runtime.screens[s].bar_offsets;
+            let client = &mut app.runtime.screens[s].workspaces[w].clients[c];
+            let mut resized = false;
 
-    log!("|- Got `ConfigureRequest` for `{}`", cr.window);
-    if let Some((s, w, c)) = find_window_indexes(app, cr.window) {
-        let sw = app.runtime.screens[s].width as i32;
-        let sh = app.runtime.screens[s].height as i32;
-        let ba = app.runtime.screens[s].bar_offsets;
-        let client = &mut app.runtime.screens[s].workspaces[w].clients[c];
-        let mut resized = false;
+            if client.floating {
+                if (cr.value_mask & CWWidth as u64) != 0 {
+                    client.w = cr.width as u32;
+                    resized = true;
+                }
+                if (cr.value_mask & CWHeight as u64) != 0 {
+                    client.h = cr.height as u32;
+                    resized = true;
+                }
+                if (cr.value_mask & CWX as u64) != 0 {
+                    client.x = cr.x;
+                    resized = true;
+                }
+                if (cr.value_mask & CWY as u64) != 0 {
+                    client.y = cr.y;
+                    resized = true;
+                }
 
-        if client.floating {
-            if (cr.value_mask & CWWidth as u64) != 0 {
-                client.w = cr.width as u32;
-                resized = true;
-            }
-            if (cr.value_mask & CWHeight as u64) != 0 {
-                client.h = cr.height as u32;
-                resized = true;
-            }
-            if (cr.value_mask & CWX as u64) != 0 {
-                client.x = cr.x;
-                resized = true;
-            }
-            if (cr.value_mask & CWY as u64) != 0 {
-                client.y = cr.y;
-                resized = true;
-            }
+                if resized {
+                    client.x = (sw - (client.w as i32)) / 2;
+                    client.y = (sh - (ba.up as i32) - (client.h as i32)) / 2;
 
-            if resized {
-                client.x = (sw - (client.w as i32)) / 2;
-                client.y = (sh - (ba.up as i32) - (client.h as i32)) / 2;
-
-                move_resize_window(
-                    app.runtime.display,
-                    client.window_id,
-                    client.x,
-                    client.y,
-                    client.w,
-                    client.h,
-                );
+                    move_resize_window(
+                        app.runtime.display,
+                        client.window_id,
+                        client.x,
+                        client.y,
+                        client.w,
+                        client.h,
+                    );
+                }
             }
+        } else {
+            let mut wc = XWindowChanges {
+                x: cr.x,
+                y: cr.y,
+                width: cr.width,
+                height: cr.height,
+                border_width: cr.border_width,
+                sibling: cr.above,
+                stack_mode: cr.detail,
+            };
+            configure_window(
+                app.runtime.display,
+                cr.window,
+                cr.value_mask as u32,
+                &mut wc,
+            );
         }
-    } else {
-        let mut wc = XWindowChanges {
-            x: cr.x,
-            y: cr.y,
-            width: cr.width,
-            height: cr.height,
-            border_width: cr.border_width,
-            sibling: cr.above,
-            stack_mode: cr.detail,
-        };
-        configure_window(
-            app.runtime.display,
-            cr.window,
-            cr.value_mask as u32,
-            &mut wc,
-        );
     }
 }
 
 fn button_press(app: &mut ApplicationContainer, ev: Event) {
-    let bp = ev.button.unwrap();
-    log!("|- Got `ButtonPress` event");
-    if let Some((s, w, c)) = find_window_indexes(app, bp.window) {
-        let cc = &app.runtime.screens[s].workspaces[w].clients[c];
-        if cc.floating {
-            app.runtime.mouse_state = MouseState {
-                win: bp.window,
-                button: bp.button,
-                pos: (bp.x_root as i64, bp.y_root as i64),
-            };
-            println!("{:?}", app.runtime.mouse_state.pos);
-            if bp.button == Button3 {
-                warp_pointer_win(app.runtime.display, bp.window, cc.w as i32, cc.h as i32);
-                app.runtime.mouse_state.pos = (
-                    (bp.x_root - bp.x + cc.w as i32) as i64,
-                    (bp.y_root - bp.y + cc.h as i32) as i64,
-                );
+    if let Some(bp) = ev.button {
+        log!("|- Got `ButtonPress` event");
+        if let Some((s, w, c)) = find_window_indexes(app, bp.window) {
+            let cc = &app.runtime.screens[s].workspaces[w].clients[c];
+            if cc.floating {
+                app.runtime.mouse_state = MouseState {
+                    win: bp.window,
+                    button: bp.button,
+                    pos: (bp.x_root as i64, bp.y_root as i64),
+                };
+                println!("{:?}", app.runtime.mouse_state.pos);
+                if bp.button == Button3 {
+                    warp_pointer_win(app.runtime.display, bp.window, cc.w as i32, cc.h as i32);
+                    app.runtime.mouse_state.pos = (
+                        (bp.x_root - bp.x + cc.w as i32) as i64,
+                        (bp.y_root - bp.y + cc.h as i32) as i64,
+                    );
+                }
             }
         }
     }

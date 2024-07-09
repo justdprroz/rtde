@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod xlib {
     use x11::xlib::Atom;
 
