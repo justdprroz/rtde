@@ -1,3 +1,5 @@
+//! \*Safe\* wrap for x11
+
 #![allow(dead_code)]
 
 pub mod xlib {

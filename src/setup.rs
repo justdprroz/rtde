@@ -1,5 +1,6 @@
+//! Code for setting up WM. Intented to be ran once
+
 use crate::config::*;
-use crate::logic::*;
 use crate::structs::*;
 use crate::utils::*;
 use crate::wrap::xinerama::*;
@@ -10,6 +11,7 @@ use x11::xlib::ButtonPressMask;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
 use x11::xlib::EnterWindowMask;
+use x11::xlib::IsViewable;
 use x11::xlib::LeaveWindowMask;
 use x11::xlib::PointerMotionMask;
 use x11::xlib::PropModeReplace;
@@ -21,8 +23,32 @@ use x11::xlib::XSetWindowAttributes;
 use x11::xlib::XA_CARDINAL;
 use x11::xlib::XA_WINDOW;
 
+// Allow this imports for documentation
+#[allow(unused_imports)]
+use crate::{logic, logic::*};
+#[allow(unused_imports)]
+use x11::xlib::Display;
+
+/// Creating & return main [`Application`] instance.
+///
+/// #### Sequence of actions done in setup:
+/// 1. Open [`Display`] connection & finds root window
+/// 2. Create empty [`Application`] struct
+/// 3. Init atoms.
+///     * Call [`init_supported_atoms`]
+/// 4. Create helper window
+///     * Call [`init_wm_check`]
+/// 5. Create screens
+///     * Call [`init_screens`] (*Will be moved soon to [`logic`] due to usage during runtime*)
+/// 6. Create workspaces
+///     * Call [`init_desktops`] (*Will be moved soon to [`logic`] due to usage during runtime*)
+/// 7. Setup shortcuts
+///     * Call [`init_actions`]
+/// 8. For some unknown reason do dummy [`arrange`] (*Likely will be removed*)
+/// 9. Set error handler for x11
+///     * Call [`set_error_handler`]
+
 pub fn setup() -> Application {
-    log!("|===== setup =====");
     let display = match open_display(None) {
         Some(d) => d,
         None => {
@@ -31,11 +57,13 @@ pub fn setup() -> Application {
         }
     };
 
+    let root_win = default_root_window(display);
+
     let mut app = Application {
         config: config(),
         core: WmCore {
             display,
-            root_win: 0,
+            root_win,
             wm_check_win: 0,
             running: true,
         },
@@ -75,8 +103,6 @@ pub fn setup() -> Application {
             net_wm_desktop: 0,
         },
     };
-
-    app.core.root_win = default_root_window(app.core.display);
 
     init_supported_atoms(&mut app);
     init_wm_check(&mut app);
@@ -125,6 +151,7 @@ pub fn setup() -> Application {
     app
 }
 
+/// Create wm check window, used to get info about WM
 pub fn init_wm_check(app: &mut Application) {
     app.core.wm_check_win =
         create_simple_window(app.core.display, app.core.root_win, 0, 0, 1, 1, 0, 0, 0);
@@ -148,6 +175,7 @@ pub fn init_wm_check(app: &mut Application) {
             exit(1);
         }
     };
+
     change_property(
         app.core.display,
         wmchckwin,
@@ -171,12 +199,14 @@ pub fn init_wm_check(app: &mut Application) {
     );
 }
 
+/// Grab keys used by actions
 pub fn init_actions(app: &mut Application) {
     for action in app.config.key_actions.iter() {
         grab_key(app.core.display, action.keysym, action.modifier);
     }
 }
 
+/// Intern required atoms, adds some on them to net suported
 pub fn init_supported_atoms(app: &mut Application) {
     // let dpy = &mut app.core.display;
     macro_rules! intern_atom {
@@ -235,8 +265,14 @@ pub fn init_supported_atoms(app: &mut Application) {
     );
 }
 
-// Improve this code
+/// Update screens
+///
+/// 1. Get screens from xinerama
+/// 2. Add more screens if amount of new screens is larger than amount of existing screens
+/// 3. Init newly created screens
+/// 4. Move everything from exceeding screens and delete them
 pub fn init_screens(app: &mut Application) {
+    // 1. Get screens
     let n = app.runtime.screens.len();
     let screens = match xinerama_query_screens(app.core.display) {
         Some(s) => s,
@@ -247,6 +283,7 @@ pub fn init_screens(app: &mut Application) {
     };
     let screens_amount = screens.len();
 
+    // 2. Add new screens
     for _ in n..screens_amount {
         app.runtime.screens.push(Screen {
             number: 0,
@@ -260,6 +297,7 @@ pub fn init_screens(app: &mut Application) {
         })
     }
 
+    // 3. Init screens
     for (index, screen) in screens.iter().enumerate() {
         app.runtime.screens[index].number = screen.screen_number as i64;
         app.runtime.screens[index].x = screen.x_org as i64;
@@ -268,6 +306,7 @@ pub fn init_screens(app: &mut Application) {
         app.runtime.screens[index].height = screen.height as i64;
     }
 
+    // 4. Move & delete removed screens
     for _ in screens_amount..n {
         if let Some(removed_screen) = app.runtime.screens.pop() {
             let removed_workspaces = removed_screen.workspaces;
@@ -283,14 +322,20 @@ pub fn init_screens(app: &mut Application) {
     }
 }
 
+/// Create and set up workspaces
+///
+/// 1. Iterate over all screens
+/// 2. If no workspaces create new
+/// 3. Get names and geometry for workspaces
+/// 4. Setup EWMH info of desktops
+///
 pub fn init_desktops(app: &mut Application) {
-    // let mut desktop_names_type = 0; // 0 - number, 1 - short name, 2 - number + short name
-
     let mut desktop_names_ewmh: Vec<String> = vec![];
     let mut viewports: Vec<i64> = vec![];
 
-    // Iterate over all screens
+    // 1. Iterate over all screens
     for (index, screen) in app.runtime.screens.iter_mut().enumerate() {
+        // 2. Create workspaces if needed
         if screen.workspaces.is_empty() {
             for i in 0..NUMBER_OF_DESKTOPS {
                 screen.workspaces.push(Workspace {
@@ -302,6 +347,8 @@ pub fn init_desktops(app: &mut Application) {
                 });
             }
         }
+
+        // 3. Get names & geometry
         for i in 0..screen.workspaces.len() {
             if index < app.config.desktops.names.len() {
                 desktop_names_ewmh.push(format!("{}", app.config.desktops.names[index][i]));
@@ -312,12 +359,12 @@ pub fn init_desktops(app: &mut Application) {
             viewports.push(screen.y as i64);
         }
     }
+    // 4. SEt info
     init_desktop_ewmh_info(app, desktop_names_ewmh, viewports);
 }
 
+/// Update EWMH desktop properties
 pub fn init_desktop_ewmh_info(app: &mut Application, names: Vec<String>, mut viewports: Vec<i64>) {
-    // Update EWMH desktop properties
-
     // Set amount of workspaces
     change_property(
         app.core.display,
@@ -354,4 +401,41 @@ pub fn init_desktop_ewmh_info(app: &mut Application, names: Vec<String>, mut vie
         viewports.as_mut_ptr() as *mut u8,
         viewports.len() as i32,
     );
+}
+
+/// Fetches clients that are already present
+///
+/// 1. Query clients known by x11
+/// 2. Check for attributes
+/// 3. Iterate over all clients
+/// 4. Ignore transient(*which?*)
+/// 5. Manage all other
+///     * Call [`manage_client`]
+///
+pub fn scan(app: &mut Application) {
+    // 1. Query
+    let (mut rw, _, wins) = query_tree(app.core.display, app.core.root_win);
+    log!("|- Found {} window(s) that are already present", wins.len());
+
+    // 2. Iterate
+    for win in wins {
+        log!("   |- Checking window {win}");
+        // 3. Check
+        if let Some(wa) = get_window_attributes(app.core.display, win) {
+            if wa.override_redirect != 0
+                || get_transient_for_hint(app.core.display, win, &mut rw) != 0
+            {
+                // 4. ignore
+                log!("      |- Window is transient. Skipping");
+                continue;
+            }
+            // Manage
+            if wa.map_state == IsViewable {
+                log!("      |- Window is viewable. Managing");
+                manage_client(app, win);
+                continue;
+            }
+        }
+        log!("      |- Can't manage window");
+    }
 }

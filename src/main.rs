@@ -6,13 +6,14 @@
 //! - Stack layout
 //! - Shortcuts
 
-mod config;
-mod events;
-mod logic;
-mod setup;
-mod structs;
-mod utils;
-mod wrap;
+pub mod config;
+pub mod events;
+pub mod logic;
+pub mod mouse;
+pub mod setup;
+pub mod structs;
+pub mod utils;
+pub mod wrap;
 
 use crate::events::*;
 use crate::logic::*;
@@ -20,6 +21,7 @@ use crate::setup::*;
 use crate::structs::*;
 use crate::utils::*;
 use crate::wrap::xlib::*;
+
 use libc::LC_CTYPE;
 
 const EVENT_LOOKUP: [&str; 37] = [

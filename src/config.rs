@@ -1,3 +1,5 @@
+//! Configuration file for editing user defined settings
+
 use crate::structs::{ActionResult::*, DesktopsConfig, ScreenSwitching};
 use crate::structs::{Color, Configuration, KeyAction};
 use x11::keysym::*;

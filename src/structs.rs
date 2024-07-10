@@ -1,3 +1,5 @@
+//! All newly defined structs used by window manager
+
 use crate::config::NUMBER_OF_DESKTOPS;
 
 pub struct Application {

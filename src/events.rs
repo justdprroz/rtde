@@ -1,6 +1,4 @@
-// -----------------------------------------------------------------------------
-//                                    Events
-// -----------------------------------------------------------------------------
+//! Functions ran for events
 
 use x11::xlib::Button3;
 use x11::xlib::CWHeight;
@@ -14,6 +12,7 @@ use x11::xlib::CWY;
 use x11::xlib::XA_ATOM;
 
 use crate::logic::*;
+use crate::mouse::*;
 use crate::setup::*;
 use crate::structs::*;
 use crate::utils::*;
