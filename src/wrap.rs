@@ -3,7 +3,11 @@
 // #![allow(dead_code)]
 
 pub mod xlib {
-    use x11::xlib::Atom;
+    use x11::xlib::{
+        Atom, ButtonPress, ButtonRelease, ClientMessage, ConfigureNotify, ConfigureRequest,
+        DestroyNotify, EnterNotify, KeyPress, KeyRelease, LeaveNotify, MapRequest, MotionNotify,
+        PropertyNotify, UnmapNotify, XEvent,
+    };
 
     unsafe extern "C" fn handler_func(
         _d: *mut x11::xlib::Display,
@@ -345,41 +349,83 @@ pub mod xlib {
         w: u64,
         p: bool,
         event_mask: i64,
-        event: &mut Event,
+        event: EEvent,
     ) -> bool {
         unsafe {
-            let mut xe = x11::xlib::XEvent { type_: 0 };
-            xe.type_ = event.type_;
-            if let Some(e) = event.client {
-                xe.client_message = e;
-            }
-            if let Some(e) = event.key {
-                xe.key = e;
-            }
-            if let Some(e) = event.unmap {
-                xe.unmap = e;
-            }
-            if let Some(e) = event.button {
-                xe.button = e;
-            }
-            if let Some(e) = event.motion {
-                xe.motion = e;
-            }
-            if let Some(e) = event.crossing {
-                xe.crossing = e;
-            }
-            if let Some(e) = event.map_request {
-                xe.map_request = e;
-            }
-            if let Some(e) = event.destroy_window {
-                xe.destroy_window = e;
-            }
+            let mut xe = XEvent { type_: 0 };
+            match event {
+                EEvent::KeyPress { key } => {
+                    xe.type_ = KeyPress;
+                    xe.key = key
+                }
+                EEvent::KeyRelease { key } => {
+                    xe.type_ = KeyRelease;
+                    xe.key = key
+                }
+                EEvent::ButtonPress { button, motion } => {
+                    xe.type_ = ButtonPress;
+                    xe.button = button;
+                    xe.motion = motion
+                }
+                EEvent::ButtonRelease { button, motion } => {
+                    xe.type_ = ButtonRelease;
+                    xe.button = button;
+                    xe.motion = motion
+                }
+                EEvent::MotionNotify { button, motion } => {
+                    xe.type_ = MotionNotify;
+                    xe.button = button;
+                    xe.motion = motion
+                }
+                EEvent::MapRequest { map_request_event } => {
+                    xe.type_ = MapRequest;
+                    xe.map_request = map_request_event
+                }
+                EEvent::EnterNotify { crossing } => {
+                    xe.type_ = EnterNotify;
+                    xe.crossing = crossing
+                }
+                EEvent::LeaveNotify { crossing } => {
+                    xe.type_ = LeaveNotify;
+                    xe.crossing = crossing
+                }
+                EEvent::DestroyNotify { destroy_window } => {
+                    xe.type_ = DestroyNotify;
+                    xe.destroy_window = destroy_window
+                }
+                EEvent::UnmapNotify { unmap } => {
+                    xe.type_ = UnmapNotify;
+                    xe.unmap = unmap
+                }
+                EEvent::PropertyNotify { property } => {
+                    xe.type_ = PropertyNotify;
+                    xe.property = property
+                }
+                EEvent::ConfigureNotify { configure } => {
+                    xe.type_ = ConfigureNotify;
+                    xe.configure = configure
+                }
+                EEvent::ClientMessage {
+                    client_message_event,
+                } => {
+                    xe.type_ = ClientMessage;
+                    xe.client_message = client_message_event
+                }
+                EEvent::ConfigureRequest {
+                    configure_request_event,
+                } => {
+                    xe.type_ = ConfigureRequest;
+                    xe.configure_request = configure_request_event
+                }
+                EEvent::Unmanaged { type_: _ } => {}
+            };
+
             x11::xlib::XSendEvent(
                 display as *mut x11::xlib::Display,
                 w,
                 p as i32,
                 event_mask,
-                &mut xe as *mut x11::xlib::XEvent,
+                &mut xe as *mut XEvent,
             ) != 0
         }
     }
@@ -400,11 +446,8 @@ pub mod xlib {
 
     pub fn next_event(display: &mut x11::xlib::Display) -> EEvent {
         unsafe {
-            let mut ev: x11::xlib::XEvent = x11::xlib::XEvent { type_: 0 };
-            x11::xlib::XNextEvent(
-                display as *mut x11::xlib::Display,
-                &mut ev as *mut x11::xlib::XEvent,
-            );
+            let mut ev: XEvent = XEvent { type_: 0 };
+            x11::xlib::XNextEvent(display as *mut x11::xlib::Display, &mut ev as *mut XEvent);
             match ev.type_ {
                 x11::xlib::KeyPress => EEvent::KeyPress { key: ev.key },
                 x11::xlib::KeyRelease => EEvent::KeyRelease { key: ev.key },
@@ -595,22 +638,6 @@ pub mod xlib {
         unsafe {
             x11::xlib::XKeysymToKeycode(display as *mut x11::xlib::Display, keysym as u64) as u32
         }
-    }
-
-    #[derive(Default)]
-    pub struct Event {
-        pub type_: i32,
-        pub button: Option<x11::xlib::XButtonEvent>,
-        pub crossing: Option<x11::xlib::XCrossingEvent>,
-        pub key: Option<x11::xlib::XKeyEvent>,
-        pub map_request: Option<x11::xlib::XMapRequestEvent>,
-        pub destroy_window: Option<x11::xlib::XDestroyWindowEvent>,
-        pub motion: Option<x11::xlib::XMotionEvent>,
-        pub unmap: Option<x11::xlib::XUnmapEvent>,
-        pub client: Option<x11::xlib::XClientMessageEvent>,
-        pub property: Option<x11::xlib::XPropertyEvent>,
-        pub configure: Option<x11::xlib::XConfigureEvent>,
-        pub configure_request: Option<x11::xlib::XConfigureRequestEvent>,
     }
 
     pub fn change_property(

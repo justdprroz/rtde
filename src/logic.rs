@@ -1,33 +1,28 @@
 //! Main windows manager logic processed as response to events
 
 use std::mem::size_of;
-use std::ptr::null_mut;
 
-use x11::xlib::Atom;
-use x11::xlib::{PropModeReplace, XA_CARDINAL};
+use x11::xlib::{
+    AnyButton, AnyModifier, Atom, Button1, Button3, Mod4Mask as ModKey, PropModeReplace,
+    XA_CARDINAL,
+};
 
 use crate::structs::*;
 use crate::utils::*;
 use crate::wrap::xlib::*;
 
 use x11::xlib::CWBorderWidth;
-use x11::xlib::ClientMessage;
 use x11::xlib::CurrentTime;
 use x11::xlib::DestroyAll;
 use x11::xlib::EnterWindowMask;
 use x11::xlib::FocusChangeMask;
-use x11::xlib::NoEventMask;
-use x11::xlib::PMaxSize;
-use x11::xlib::PMinSize;
 use x11::xlib::PropModeAppend;
 use x11::xlib::PropertyChangeMask;
 use x11::xlib::RevertToPointerRoot;
 use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
-use x11::xlib::Success;
 use x11::xlib::XGetWindowProperty;
 use x11::xlib::XWindowAttributes;
-use x11::xlib::XA_ATOM;
 use x11::xlib::XA_WINDOW;
 
 /// Add client to runtime
@@ -333,30 +328,6 @@ pub fn detach_dock(app: &mut Application, win: u64) {
     }
 }
 
-pub fn update_normal_hints(app: &mut Application, c: &mut Client) {
-    if let Some((sh, _)) = get_wm_normal_hints(app.core.display, c.window_id) {
-        if (sh.flags & PMaxSize) != 0 {
-            c.maxw = sh.max_width;
-            c.maxh = sh.max_height;
-        }
-        if (sh.flags & PMinSize) != 0 {
-            c.minw = sh.min_width;
-            c.minh = sh.min_height;
-        }
-    }
-
-    if c.minw != 0 && c.w < c.minw as u32 {
-        c.w = c.minw as u32;
-    }
-    if c.minh != 0 && c.h < c.minh as u32 {
-        c.h = c.minh as u32;
-    }
-
-    if c.maxw != 0 && c.maxh != 0 && c.maxw == c.minw && c.maxh == c.minh {
-        c.fixed = true;
-    }
-}
-
 /// Arrange windows of current workspace in specified layout
 /// TODO DOCUMENTATION
 pub fn arrange(app: &mut Application) {
@@ -469,25 +440,6 @@ pub fn arrange(app: &mut Application) {
     }
 }
 
-/// Shows/Hides all windows on current workspace
-pub fn show_hide_workspace(app: &mut Application) {
-    let ws = &mut app.runtime;
-    let window_decoration_offset = app.config.gap_width + app.config.border_size;
-    // Iterate over all clients
-    for client in &mut ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients {
-        move_resize_window(
-            app.core.display,
-            client.window_id,
-            -(client.w as i32 + window_decoration_offset as i32),
-            -(client.h as i32 + window_decoration_offset as i32),
-            client.w,
-            client.h,
-        );
-        // flip visibility state
-        client.visible = !client.visible;
-    }
-}
-
 /// Shifts current client tracker after destroying clients
 pub fn shift_current_client(
     app: &mut Application,
@@ -539,81 +491,6 @@ pub fn shift_current_client(
     }
 }
 
-/// Safely sends atom to X server
-pub fn send_atom(app: &mut Application, win: u64, e: x11::xlib::Atom) -> bool {
-    if let Some(ps) = get_wm_protocols(app.core.display, win) {
-        // If protocol not supported
-        if ps.into_iter().filter(|p| *p == e).collect::<Vec<_>>().len() == 0 {
-            return false;
-        }
-    } else {
-        // If failed obtaining protocols
-        return false;
-    }
-
-    // proceed to send event to window
-    let mut ev = Event {
-        type_: ClientMessage,
-        button: None,
-        crossing: None,
-        key: None,
-        map_request: None,
-        destroy_window: None,
-        motion: None,
-        unmap: None,
-        property: None,
-        configure: None,
-        configure_request: None,
-        client: Some(x11::xlib::XClientMessageEvent {
-            type_: ClientMessage,
-            serial: 0,
-            send_event: 0,
-            display: null_mut(),
-            window: win,
-            message_type: app.atoms.wm_protocols,
-            format: 32,
-            data: {
-                let mut d = x11::xlib::ClientMessageData::new();
-                d.set_long(0, e as i64);
-                d.set_long(1, CurrentTime as i64);
-                d
-            },
-        }),
-    };
-    return send_event(app.core.display, win, false, NoEventMask, &mut ev);
-}
-
-// TODO: What is going on here
-pub fn get_atom_prop(app: &mut Application, win: u64, prop: Atom) -> Atom {
-    let mut dummy_atom: u64 = 0;
-    let mut dummy_int: i32 = 0;
-    let mut dummy_long: u64 = 0;
-    let mut property_return: *mut u8 = std::ptr::null_mut::<u8>();
-    let mut atom: u64 = 0;
-    unsafe {
-        if x11::xlib::XGetWindowProperty(
-            app.core.display,
-            win,
-            prop,
-            0,
-            size_of::<Atom>() as i64,
-            0,
-            XA_ATOM,
-            &mut dummy_atom as *mut u64,
-            &mut dummy_int as *mut i32,
-            &mut dummy_long as *mut u64,
-            &mut dummy_long as *mut u64,
-            &mut property_return as *mut *mut u8,
-        ) == Success as i32
-            && property_return as usize != 0
-        {
-            atom = *(property_return as *mut Atom);
-            x11::xlib::XFree(property_return as *mut libc::c_void);
-        }
-    }
-    atom
-}
-
 /// Removes window from runtime
 pub fn unmanage_window(app: &mut Application, win: u64) {
     // Find trackers for window
@@ -635,17 +512,6 @@ pub fn unmanage_window(app: &mut Application, win: u64) {
             detach_dock(app, win);
         }
     }
-}
-
-pub fn update_trackers(app: &mut Application, win: u64) {
-    if let Some((s, w, c)) = find_window_indexes(app, win) {
-        let ws = &mut app.runtime;
-        ws.current_screen = s;
-        ws.current_workspace = w;
-        ws.screens[s].current_workspace = w;
-        ws.current_client = Some(c);
-        ws.screens[s].workspaces[w].current_client = Some(c);
-    };
 }
 
 /// Spawn new program by forking
@@ -672,36 +538,6 @@ pub fn spawn(app: &mut Application, cmd: String) {
                 let _ = nix::unistd::execvp(args[0], &args);
             }
             Err(_) => {}
-        }
-    }
-}
-
-/// Updates client list property of WM
-/// 1. Delete present list
-/// 2. For every client on every workspace on every screen add client to list
-pub fn update_client_list(app: &mut Application) {
-    // 1. Delete
-    delete_property(
-        app.core.display,
-        app.core.root_win,
-        app.atoms.net_client_list,
-    );
-
-    // 2. Update
-    for screen in &app.runtime.screens {
-        for workspace in &screen.workspaces {
-            for client in &workspace.clients {
-                change_property(
-                    app.core.display,
-                    app.core.root_win,
-                    app.atoms.net_client_list,
-                    XA_WINDOW,
-                    32,
-                    PropModeAppend,
-                    &client.window_id as *const u64 as *mut u8,
-                    1,
-                );
-            }
         }
     }
 }
@@ -928,4 +764,109 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
         }
         update_active_window(app);
     }
+}
+
+pub fn update_master_width(app: &mut Application, w: f64) {
+    // Update master width
+    app.runtime.screens[app.runtime.current_screen].workspaces[app.runtime.current_workspace]
+        .master_width += w;
+    // Rearrange windows
+    arrange(app);
+}
+
+pub fn update_master_capacity(app: &mut Application, i: i64) {
+    // Change master size
+    app.runtime.screens[app.runtime.current_screen].workspaces[app.runtime.current_workspace]
+        .master_capacity += i;
+    // Rearrange windows
+    arrange(app);
+}
+
+pub fn toggle_float(app: &mut Application) {
+    if let Some(c) = app.runtime.current_client {
+        let state = app.runtime.screens[app.runtime.current_screen].workspaces
+            [app.runtime.current_workspace]
+            .clients[c]
+            .floating;
+        app.runtime.screens[app.runtime.current_screen].workspaces[app.runtime.current_workspace]
+            .clients[c]
+            .floating = !state;
+        arrange(app);
+    }
+}
+
+/// Get name from x server for specified window and undate it in struct
+/// 1. Get name property
+/// 2. Set window name if window is managed
+pub fn update_client_name(app: &mut Application, win: u64) {
+    // 1. Get
+    let name = match get_text_property(app.core.display, win, app.atoms.net_wm_name) {
+        Some(name) => name,
+        None => "_".to_string(),
+    };
+
+    // 2. Set
+    if let Some((s, w, c)) = find_window_indexes(app, win) {
+        app.runtime.screens[s].workspaces[w].clients[c].window_name = name;
+    }
+}
+
+/// Returns name of specified client
+///
+/// 1. If client is managed return its name
+/// 2. If not managed return "Unmanaged Window"
+pub fn get_client_name(app: &mut Application, win: u64) -> String {
+    if let Some((s, w, c)) = find_window_indexes(app, win) {
+        app.runtime.screens[s].workspaces[w].clients[c]
+            .window_name
+            .clone()
+    } else {
+        "Unmanaged Window".to_string()
+    }
+}
+
+pub fn focus(app: &mut Application, win: u64) {
+    set_window_border(
+        app.core.display,
+        win,
+        argb_to_int(app.config.active_border_color),
+    );
+    update_trackers(app, win);
+    update_active_window(app);
+    set_input_focus(app.core.display, win, RevertToPointerRoot, CurrentTime);
+    grab_button(app.core.display, win, Button1, ModKey);
+    grab_button(app.core.display, win, Button3, ModKey);
+
+    let w = app.runtime.current_workspace + app.runtime.current_screen * 10;
+
+    change_property(
+        app.core.display,
+        app.core.root_win,
+        app.atoms.net_current_desktop,
+        XA_CARDINAL,
+        32,
+        PropModeReplace,
+        &w as *const usize as *mut usize as *mut u8,
+        1,
+    );
+}
+
+pub fn unfocus(app: &mut Application, win: u64) {
+    set_window_border(
+        app.core.display,
+        win,
+        argb_to_int(app.config.normal_border_color),
+    );
+    ungrab_button(app.core.display, AnyButton as u32, AnyModifier, win);
+}
+
+pub fn update_trackers(app: &mut Application, win: u64) {
+    if let Some((s, w, c)) = find_window_indexes(app, win) {
+        let ws = &mut app.runtime;
+        ws.current_screen = s;
+        ws.current_workspace = w;
+        ws.screens[s].current_workspace = w;
+        ws.current_client = Some(c);
+        ws.screens[s].workspaces[w].current_client = Some(c);
+    };
 }
