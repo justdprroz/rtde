@@ -1,6 +1,6 @@
 //! \*Safe\* wrap for x11
 
-#![allow(dead_code)]
+// #![allow(dead_code)]
 
 pub mod xlib {
     use x11::xlib::Atom;
@@ -398,53 +398,107 @@ pub mod xlib {
         }
     }
 
-    pub fn next_event(display: &mut x11::xlib::Display) -> Event {
+    pub fn next_event(display: &mut x11::xlib::Display) -> EEvent {
         unsafe {
             let mut ev: x11::xlib::XEvent = x11::xlib::XEvent { type_: 0 };
             x11::xlib::XNextEvent(
                 display as *mut x11::xlib::Display,
                 &mut ev as *mut x11::xlib::XEvent,
             );
-            let mut event: Event = Event {
-                type_: ev.type_,
-                ..Default::default()
-            };
-            match event.type_ {
-                x11::xlib::KeyPress | x11::xlib::KeyRelease => {
-                    event.key = Some(ev.key);
-                }
-                x11::xlib::ButtonPress | x11::xlib::ButtonRelease | x11::xlib::MotionNotify => {
-                    event.button = Some(ev.button);
-                    event.motion = Some(ev.motion);
-                }
-                x11::xlib::MapRequest => {
-                    event.map_request = Some(ev.map_request);
-                }
-                x11::xlib::EnterNotify | x11::xlib::LeaveNotify => {
-                    event.crossing = Some(ev.crossing);
-                }
-                x11::xlib::DestroyNotify => {
-                    event.destroy_window = Some(ev.destroy_window);
-                }
-                x11::xlib::UnmapNotify => {
-                    event.unmap = Some(ev.unmap);
-                }
-                x11::xlib::PropertyNotify => {
-                    event.property = Some(ev.property);
-                }
-                x11::xlib::ConfigureNotify => {
-                    event.configure = Some(ev.configure);
-                }
-                x11::xlib::ClientMessage => {
-                    event.client = Some(ev.client_message);
-                }
-                x11::xlib::ConfigureRequest => {
-                    event.configure_request = Some(ev.configure_request);
-                }
-                _ => {}
-            };
-            event
+            match ev.type_ {
+                x11::xlib::KeyPress => EEvent::KeyPress { key: ev.key },
+                x11::xlib::KeyRelease => EEvent::KeyRelease { key: ev.key },
+                x11::xlib::ButtonPress => EEvent::ButtonPress {
+                    button: ev.button,
+                    motion: ev.motion,
+                },
+                x11::xlib::ButtonRelease => EEvent::ButtonRelease {
+                    button: ev.button,
+                    motion: ev.motion,
+                },
+                x11::xlib::MotionNotify => EEvent::MotionNotify {
+                    button: ev.button,
+                    motion: ev.motion,
+                },
+                x11::xlib::MapRequest => EEvent::MapRequest {
+                    map_request_event: ev.map_request,
+                },
+                x11::xlib::EnterNotify => EEvent::EnterNotify {
+                    crossing: ev.crossing,
+                },
+                x11::xlib::LeaveNotify => EEvent::LeaveNotify {
+                    crossing: ev.crossing,
+                },
+                x11::xlib::DestroyNotify => EEvent::DestroyNotify {
+                    destroy_window: ev.destroy_window,
+                },
+                x11::xlib::UnmapNotify => EEvent::UnmapNotify { unmap: ev.unmap },
+                x11::xlib::PropertyNotify => EEvent::PropertyNotify {
+                    property: ev.property,
+                },
+                x11::xlib::ConfigureNotify => EEvent::ConfigureNotify {
+                    configure: ev.configure,
+                },
+                x11::xlib::ClientMessage => EEvent::ClientMessage {
+                    client_message_event: ev.client_message,
+                },
+                x11::xlib::ConfigureRequest => EEvent::ConfigureRequest {
+                    configure_request_event: ev.configure_request,
+                },
+                _ => EEvent::Unmanaged { type_: ev.type_ },
+            }
         }
+    }
+
+    pub enum EEvent {
+        KeyPress {
+            key: x11::xlib::XKeyEvent,
+        },
+        KeyRelease {
+            key: x11::xlib::XKeyEvent,
+        },
+        ButtonPress {
+            button: x11::xlib::XButtonEvent,
+            motion: x11::xlib::XMotionEvent,
+        },
+        ButtonRelease {
+            button: x11::xlib::XButtonEvent,
+            motion: x11::xlib::XMotionEvent,
+        },
+        MotionNotify {
+            button: x11::xlib::XButtonEvent,
+            motion: x11::xlib::XMotionEvent,
+        },
+        MapRequest {
+            map_request_event: x11::xlib::XMapRequestEvent,
+        },
+        EnterNotify {
+            crossing: x11::xlib::XCrossingEvent,
+        },
+        LeaveNotify {
+            crossing: x11::xlib::XCrossingEvent,
+        },
+        DestroyNotify {
+            destroy_window: x11::xlib::XDestroyWindowEvent,
+        },
+        UnmapNotify {
+            unmap: x11::xlib::XUnmapEvent,
+        },
+        PropertyNotify {
+            property: x11::xlib::XPropertyEvent,
+        },
+        ConfigureNotify {
+            configure: x11::xlib::XConfigureEvent,
+        },
+        ClientMessage {
+            client_message_event: x11::xlib::XClientMessageEvent,
+        },
+        ConfigureRequest {
+            configure_request_event: x11::xlib::XConfigureRequestEvent,
+        },
+        Unmanaged {
+            type_: i32,
+        },
     }
 
     pub fn get_wm_normal_hints(

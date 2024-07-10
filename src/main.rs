@@ -67,24 +67,30 @@ const EVENT_LOOKUP: [&str; 37] = [
 fn run(app: &mut Application) {
     log!("|===== run =====");
     while app.core.running {
-        let ev = next_event(app.core.display);
-        match ev.type_ {
-            x11::xlib::KeyPress => key_press(app, ev),
-            x11::xlib::MapRequest => map_request(app, ev),
-            x11::xlib::EnterNotify => enter_notify(app, ev),
-            x11::xlib::DestroyNotify => destroy_notify(app, ev),
-            x11::xlib::UnmapNotify => unmap_notify(app, ev),
-            x11::xlib::MotionNotify => motion_notify(app, ev),
-            x11::xlib::PropertyNotify => property_notify(app, ev),
-            x11::xlib::ConfigureNotify => configure_notify(app, ev),
-            x11::xlib::ClientMessage => client_message(app, ev),
-            x11::xlib::ConfigureRequest => configure_request(app, ev),
-            x11::xlib::ButtonPress => button_press(app, ev),
-            x11::xlib::ButtonRelease => button_release(app, ev),
-            _ => {
+        let event = next_event(app.core.display);
+        match event {
+            EEvent::KeyPress { key } => key_press(app, key),
+            EEvent::KeyRelease { key: _ } => {}
+            EEvent::MapRequest { map_request_event } => map_request(app, map_request_event),
+            EEvent::EnterNotify { crossing } => enter_notify(app, crossing),
+            EEvent::LeaveNotify { crossing: _ } => {}
+            EEvent::DestroyNotify { destroy_window } => destroy_notify(app, destroy_window),
+            EEvent::UnmapNotify { unmap } => unmap_notify(app, unmap),
+            EEvent::MotionNotify { button, motion } => motion_notify(app, button, motion),
+            EEvent::ButtonPress { button, motion } => button_press(app, button, motion),
+            EEvent::ButtonRelease { button, motion } => button_release(app, button, motion),
+            EEvent::PropertyNotify { property } => property_notify(app, property),
+            EEvent::ConfigureNotify { configure } => configure_notify(app, configure),
+            EEvent::ClientMessage {
+                client_message_event,
+            } => client_message(app, client_message_event),
+            EEvent::ConfigureRequest {
+                configure_request_event,
+            } => configure_request(app, configure_request_event),
+            EEvent::Unmanaged { type_ } => {
                 log!(
                     "|- Event `{}` is not currently managed",
-                    EVENT_LOOKUP[ev.type_ as usize]
+                    EVENT_LOOKUP[type_ as usize]
                 );
             }
         };
