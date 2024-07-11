@@ -1,444 +1,19 @@
 //! Main windows manager logic processed as response to events
 
-use std::mem::size_of;
-
-use x11::xlib::{
-    AnyButton, AnyModifier, Atom, Button1, Button3, Mod4Mask as ModKey, PropModeReplace,
-    XA_CARDINAL,
-};
-
 use crate::structs::*;
 use crate::utils::*;
-use crate::wrap::xlib::*;
+use crate::wrapper::xlib::*;
 
-use x11::xlib::CWBorderWidth;
+use x11::xlib::AnyButton;
+use x11::xlib::AnyModifier;
+use x11::xlib::Button1;
+use x11::xlib::Button3;
 use x11::xlib::CurrentTime;
 use x11::xlib::DestroyAll;
-use x11::xlib::EnterWindowMask;
-use x11::xlib::FocusChangeMask;
-use x11::xlib::PropModeAppend;
-use x11::xlib::PropertyChangeMask;
+use x11::xlib::Mod4Mask as ModKey;
+use x11::xlib::PropModeReplace;
 use x11::xlib::RevertToPointerRoot;
-use x11::xlib::StructureNotifyMask;
-use x11::xlib::SubstructureNotifyMask;
-use x11::xlib::XGetWindowProperty;
-use x11::xlib::XWindowAttributes;
-use x11::xlib::XA_WINDOW;
-
-/// Add client to runtime
-///
-/// 1. Get window attributes
-///     * Exit if no proper attributes or if `override_redirect` is set
-/// 2. Check if already managed
-///     * Return
-/// 3. Check if window is dock and setup
-///     * Call [`attach_dock`]
-///     * Map window
-///     * Return
-/// 4. Create client and setup essential fields
-/// 5. Get properties
-/// 6. Update hints by running [`update_normal_hints`]
-/// 7. Set flags
-/// 8. Set input mask for events
-/// 9. set previously active client border to normal
-/// 10. Get desktop info left from previous wm session
-/// 11. Find where to place window
-/// 12. Add to stack
-/// 13. Update client list & desktops
-/// 14. Configure window
-/// 15. Arrange clients
-/// 16. Map window
-pub fn manage_client(app: &mut Application, win: u64) {
-    // 1. Get attributes
-    let wa;
-    if let Some(a) = get_window_attributes(app.core.display, win) {
-        if a.override_redirect == 0 {
-            wa = a;
-        } else {
-            return;
-        };
-    } else {
-        return;
-    }
-
-    // 2. Check managed
-    if find_window_indexes(app, win).is_some() {
-        return;
-    }
-
-    // 3. Check if dock
-    if get_atom_prop(app, win, app.atoms.net_wm_window_type) == app.atoms.net_wm_window_type_dock {
-        attach_dock(app, &wa, win);
-        map_window(app.core.display, win);
-        select_input(
-            app.core.display,
-            win,
-            StructureNotifyMask | SubstructureNotifyMask,
-        );
-        return;
-    }
-
-    // 4. Create client
-    let mut c: Client = Client::default();
-    let mut trans = 0;
-    c.window_id = win;
-    c.w = wa.width as u32;
-    c.h = wa.height as u32;
-    c.x = wa.x
-        + app.runtime.screens[app.runtime.current_screen]
-            .bar_offsets
-            .left as i32;
-    c.y = wa.y
-        + app.runtime.screens[app.runtime.current_screen]
-            .bar_offsets
-            .up as i32;
-    c.visible = true;
-
-    // 5. Properties
-    let _reserved = get_transient_for_hint(app.core.display, win, &mut trans);
-    let state = get_atom_prop(app, win, app.atoms.net_wm_state);
-    let wtype = get_atom_prop(app, win, app.atoms.net_wm_window_type);
-
-    // 6. Update hints
-    update_normal_hints(app, &mut c);
-
-    // 7. Set flags
-    if state == app.atoms.net_wm_fullscreen {
-        c.floating = true;
-        c.fullscreen = true;
-    }
-    if wtype == app.atoms.net_wm_window_type_dialog {
-        c.floating = true;
-    }
-
-    if !c.floating {
-        c.floating = c.fixed || trans != 0;
-    }
-
-    // 8. Set input mask for events
-    select_input(
-        app.core.display,
-        win,
-        EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
-    );
-
-    // 9. set previously active client border to normal
-    if let Some(cw) = get_current_client_id(app) {
-        set_window_border(
-            app.core.display,
-            cw,
-            argb_to_int(app.config.normal_border_color),
-        );
-    }
-
-    // 10. Get desktop
-    let client_desktop: Option<u64>;
-    unsafe {
-        let mut actual_type: Atom = 0;
-        let mut actual_format: i32 = 0;
-        let mut nitems: u64 = 0;
-        let mut bytes_after: u64 = 0;
-        let mut prop: *mut u8 = std::ptr::null_mut();
-        XGetWindowProperty(
-            app.core.display,
-            win,
-            app.atoms.net_wm_desktop,
-            0,
-            size_of::<Atom>() as i64,
-            0,
-            XA_CARDINAL,
-            &mut actual_type as *mut Atom,
-            &mut actual_format as *mut i32,
-            &mut nitems as *mut u64,
-            &mut bytes_after as *mut u64,
-            &mut prop as *mut *mut u8,
-        );
-        client_desktop = if actual_type != 0 {
-            log!("   |- Window property:");
-            log!(
-                "      |- Type: {}",
-                get_atom_name(app.core.display, actual_type)
-            );
-            log!("      |- Items: {}", nitems);
-            log!("      |- Format: {}", actual_format);
-            log!("      |- Data: {}", *prop as u64);
-            Some(*prop as u64)
-        } else {
-            None
-        }
-    }
-
-    // 11. Calculate window place
-    let (client_screen, client_workspace) = match client_desktop {
-        Some(d) => {
-            let s = d as usize / 10;
-            let w = d as usize % 10;
-            if s < app.runtime.screens.len() && w < app.runtime.screens[s].workspaces.len() {
-                (s, w)
-            } else {
-                (app.runtime.current_screen, app.runtime.current_workspace)
-            }
-        }
-        None => (app.runtime.current_screen, app.runtime.current_workspace),
-    };
-
-    let w = &mut app.runtime.screens[client_screen].workspaces[client_workspace];
-
-    // 12. Add window to stack
-    w.current_client = Some(w.clients.len());
-    app.runtime.current_client = w.current_client;
-    w.clients.push(c);
-
-    // 13. Update client list & window desktop
-    change_property(
-        app.core.display,
-        app.core.root_win,
-        app.atoms.net_client_list,
-        XA_WINDOW,
-        32,
-        PropModeAppend,
-        &win as *const u64 as *mut u8,
-        1,
-    );
-    let cur_workspace: usize = client_workspace + client_screen * 10;
-    update_client_desktop(app, win, cur_workspace as u64);
-
-    // 14. Configure window
-    let mut wc = x11::xlib::XWindowChanges {
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-        border_width: app.config.border_size as i32,
-        sibling: 0,
-        stack_mode: 0,
-    };
-    configure_window(app.core.display, win, CWBorderWidth as u32, &mut wc);
-    set_window_border(
-        app.core.display,
-        win,
-        argb_to_int(app.config.active_border_color),
-    );
-    update_client_name(app, win);
-    raise_window(app.core.display, win);
-    set_input_focus(app.core.display, win, RevertToPointerRoot, CurrentTime);
-    let data: [i64; 2] = [1, 0];
-    change_property(
-        app.core.display,
-        win,
-        app.atoms.wm_state,
-        app.atoms.wm_state,
-        32,
-        PropModeReplace,
-        &data as *const [i64; 2] as *mut u8,
-        2,
-    );
-
-    // 15. Arrange current workspace
-    arrange(app);
-    // 16. Tag window as mapped
-    map_window(app.core.display, win);
-}
-
-pub fn attach_dock(app: &mut Application, wa: &XWindowAttributes, win: u64) {
-    let dx = wa.x as i64;
-    let dy = wa.y as i64;
-    let dw = wa.width as usize;
-    let dh = wa.height as usize;
-    for screen in &mut app.runtime.screens {
-        if dx >= screen.x && dx < (screen.x + screen.width) {
-            if dy >= screen.y && dy < (screen.y + screen.height) {
-                let mut ba = screen.bar_offsets;
-                // Found corresponding screen
-                if dw > dh {
-                    // dock is horizontal
-                    if dy == screen.y {
-                        // dock is on the top
-                        ba.up = dh;
-                    } else {
-                        // dock is on the bottom
-                        ba.down = dh;
-                    }
-                } else {
-                    // dock is vertical
-                    if dx == screen.x {
-                        // dock is on the left
-                        ba.left = dw;
-                    } else {
-                        // dock is on the right
-                        ba.right = dw;
-                    }
-                }
-                screen.bar_offsets = ba;
-                app.runtime.bars.push(Bar {
-                    window_id: win,
-                    x: dx,
-                    y: dy,
-                    w: dw,
-                    h: dh,
-                });
-                arrange(app);
-                break;
-            }
-        }
-    }
-}
-
-pub fn detach_dock(app: &mut Application, win: u64) {
-    log!("   |- Detaching dock");
-    let b = match app.runtime.bars.iter().find(|b| b.window_id == win) {
-        Some(b) => b.clone(),
-        None => return,
-    };
-    app.runtime.bars.retain(|b| b.window_id != win);
-    let dx = b.x as i64;
-    let dy = b.y as i64;
-    let dw = b.w as usize;
-    let dh = b.h as usize;
-    log!("{} {} {} {}", dx, dy, dw, dh);
-    for screen in &mut app.runtime.screens {
-        if dx >= screen.x && dx < (screen.x + screen.width) {
-            if dy >= screen.y && dy < (screen.y + screen.height) {
-                let mut ba = screen.bar_offsets;
-                // Found corresponding screen
-                if dw > dh {
-                    // dock is horizontal
-                    if dy == screen.y {
-                        // dock is on the top
-                        ba.up = 0;
-                    } else {
-                        // dock is on the bottom
-                        ba.down = 0;
-                    }
-                } else {
-                    // dock is vertical
-                    if dx == screen.x {
-                        // dock is on the left
-                        ba.left = 0;
-                    } else {
-                        // dock is on the right
-                        ba.right = 0;
-                    }
-                }
-                screen.bar_offsets = ba;
-                arrange(app);
-                break;
-            }
-        }
-    }
-}
-
-/// Arrange windows of current workspace in specified layout
-/// TODO DOCUMENTATION
-pub fn arrange(app: &mut Application) {
-    log!("   |- Arranging...");
-    let ws = &mut app.runtime;
-    // Go thru all screens
-    for screen in &mut ws.screens {
-        // Usable screen
-        let ba = screen.bar_offsets;
-        let screen_height = screen.height - (ba.up + ba.down) as i64;
-        // Gap width
-        let gw = app.config.gap_width as i32;
-        let bs = app.config.border_size as u32;
-        // Get amount of visible not floating clients to arrange
-        let stack_size = screen.workspaces[screen.current_workspace]
-            .clients
-            .iter()
-            .filter(|&c| !c.floating)
-            .count();
-        // Get widths of master and stack areas
-        let mut master_width = ((screen.width as i32 - gw * 3) as f64
-            * screen.workspaces[screen.current_workspace].master_width)
-            as u32;
-        let stack_width = (screen.width as i32 - gw * 3) - master_width as i32;
-        let mut master_capacity = screen.workspaces[screen.current_workspace].master_capacity;
-        // if master_capacity out of stack_size bounds use whole screen for one column
-        if master_capacity <= 0 || master_capacity >= stack_size as i64 {
-            master_capacity = stack_size as i64;
-            master_width = screen.width as u32 - gw as u32 * 2;
-        }
-        log!("   |- Arranging {} window", stack_size);
-        // Iterate over all tileable clients structs
-        for (index, client) in screen.workspaces[screen.current_workspace]
-            .clients
-            .iter_mut()
-            .rev()
-            .filter(|c| !c.floating)
-            .enumerate()
-        {
-            if stack_size == 1 {
-                // if only one window selected, just show it
-                client.x = 0;
-                client.y = ba.up as i32;
-                client.w = screen.width as u32;
-                client.h = screen_height as u32;
-            } else if (index as i64) < master_capacity {
-                // if master_capacity is not full put it here
-                log!("      |- Goes to master");
-                // some math...
-                let win_height =
-                    (screen_height - gw as i64 - master_capacity * gw as i64) / master_capacity;
-                // Add gap offset to the left
-                client.x = gw;
-                // Top gap + clients with their gaps offset
-                client.y = ba.up as i32 + gw + (win_height as i32 + gw) * index as i32;
-                client.w = master_width - 2 * bs;
-                client.h = win_height as u32 - 2 * bs
-            } else {
-                // otherwise put it in secondary stack
-                log!("      |- Goes to stack");
-                // a bit more of math...
-                let win_height =
-                    (screen_height - gw as i64 - (stack_size as i64 - master_capacity) * gw as i64)
-                        / (stack_size as i64 - master_capacity);
-                client.x = master_width as i32 + (gw * 2);
-                client.y = ba.up as i32
-                    + gw
-                    + (win_height as i32 + gw) * (index as i64 - master_capacity) as i32;
-                client.w = stack_width as u32 - 2 * bs;
-                client.h = win_height as u32 - 2 * bs;
-            }
-        }
-
-        // update corresponding windows
-        for client in &screen.workspaces[screen.current_workspace].clients {
-            if client.fullscreen {
-                move_resize_window(
-                    app.core.display,
-                    client.window_id,
-                    screen.x as i32,
-                    screen.y as i32,
-                    screen.width as u32,
-                    screen.height as u32,
-                );
-                set_window_border_width(app.core.display, client.window_id, 0);
-                raise_window(app.core.display, client.window_id);
-            } else {
-                set_window_border_width(
-                    app.core.display,
-                    client.window_id,
-                    if stack_size > 1 || client.floating {
-                        app.config.border_size as u32
-                    } else {
-                        0
-                    },
-                );
-                move_resize_window(
-                    app.core.display,
-                    client.window_id,
-                    client.x + screen.x as i32,
-                    client.y + screen.y as i32,
-                    client.w,
-                    client.h,
-                );
-                if client.floating {
-                    raise_window(app.core.display, client.window_id);
-                }
-            };
-        }
-    }
-}
+use x11::xlib::XA_CARDINAL;
 
 /// Shifts current client tracker after destroying clients
 pub fn shift_current_client(
@@ -488,57 +63,6 @@ pub fn shift_current_client(
             set_input_focus(app.core.display, win, RevertToPointerRoot, CurrentTime);
         }
         update_active_window(app);
-    }
-}
-
-/// Removes window from runtime
-pub fn unmanage_window(app: &mut Application, win: u64) {
-    // Find trackers for window
-    if let Some((s, w, c)) = find_window_indexes(app, win) {
-        log!("   |- Found window {} at indexes {}, {}, {}", win, s, w, c);
-        delete_property(app.core.display, win, app.atoms.net_wm_desktop);
-        app.runtime.screens[s].workspaces[w].clients.remove(c);
-        shift_current_client(app, Some(s), Some(w));
-        arrange(app);
-        update_client_list(app);
-    } else {
-        if app
-            .runtime
-            .bars
-            .iter()
-            .find(|b| b.window_id == win)
-            .is_some()
-        {
-            detach_dock(app, win);
-        }
-    }
-}
-
-/// Spawn new program by forking
-///
-/// 1. Fork
-/// 2. For child close connections from Parent
-/// 3. Spawn program using sh
-pub fn spawn(app: &mut Application, cmd: String) {
-    unsafe {
-        match nix::unistd::fork() {
-            Ok(nix::unistd::ForkResult::Parent { child: _ }) => {}
-            Ok(nix::unistd::ForkResult::Child) => {
-                if app.core.display as *mut x11::xlib::Display as usize != 0 {
-                    match nix::unistd::close(x11::xlib::XConnectionNumber(app.core.display)) {
-                        Ok(_) => {}
-                        Err(_) => {}
-                    };
-                }
-                let args = [
-                    &std::ffi::CString::from_vec_unchecked("/usr/bin/sh".as_bytes().to_vec()),
-                    &std::ffi::CString::from_vec_unchecked("-c".as_bytes().to_vec()),
-                    &std::ffi::CString::from_vec_unchecked(cmd.as_bytes().to_vec()),
-                ];
-                let _ = nix::unistd::execvp(args[0], &args);
-            }
-            Err(_) => {}
-        }
     }
 }
 
@@ -598,7 +122,7 @@ pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
         // Add window to stack of another display
         app.runtime.screens[cs].workspaces[nw].clients.push(cc);
         // Arrange all monitors
-        arrange(app);
+        arrange_current(app);
     }
 }
 
@@ -682,7 +206,12 @@ pub fn move_to_workspace(app: &mut Application, n: u64) {
             update_client_desktop(app, cc.window_id, cur_workspace as u64);
 
             // Update current workspace layout
-            arrange(app);
+            arrange_current(app);
+            show_workspace(
+                app,
+                app.runtime.current_screen,
+                app.runtime.current_workspace,
+            );
             // Move window out of view
             move_resize_window(
                 app.core.display,
@@ -699,6 +228,7 @@ pub fn move_to_workspace(app: &mut Application, n: u64) {
             app.runtime.screens[app.runtime.current_screen].workspaces[n as usize]
                 .clients
                 .push(cc);
+            arrange_workspace(app, app.runtime.current_screen, n as usize);
         }
     }
 }
@@ -714,7 +244,11 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
     // Check is focusing on another workspace
     if n as usize != app.runtime.current_workspace {
         // Hide current workspace
-        show_hide_workspace(app);
+        hide_workspace(
+            app,
+            app.runtime.current_screen,
+            app.runtime.current_workspace,
+        );
         // unfocus current win
         if let Some(cw) = get_current_client_id(app) {
             set_window_border(
@@ -752,9 +286,12 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
             );
         }
         // Show current client
-        show_hide_workspace(app);
+        show_workspace(
+            app,
+            app.runtime.current_screen,
+            app.runtime.current_workspace,
+        );
         // Arrange update workspace
-        arrange(app);
         if let Some(index) = app.runtime.current_client {
             let win = app.runtime.screens[app.runtime.current_screen].workspaces
                 [app.runtime.current_workspace]
@@ -771,7 +308,7 @@ pub fn update_master_width(app: &mut Application, w: f64) {
     app.runtime.screens[app.runtime.current_screen].workspaces[app.runtime.current_workspace]
         .master_width += w;
     // Rearrange windows
-    arrange(app);
+    arrange_current(app);
 }
 
 pub fn update_master_capacity(app: &mut Application, i: i64) {
@@ -779,7 +316,7 @@ pub fn update_master_capacity(app: &mut Application, i: i64) {
     app.runtime.screens[app.runtime.current_screen].workspaces[app.runtime.current_workspace]
         .master_capacity += i;
     // Rearrange windows
-    arrange(app);
+    arrange_current(app);
 }
 
 pub fn toggle_float(app: &mut Application) {
@@ -791,7 +328,7 @@ pub fn toggle_float(app: &mut Application) {
         app.runtime.screens[app.runtime.current_screen].workspaces[app.runtime.current_workspace]
             .clients[c]
             .floating = !state;
-        arrange(app);
+        arrange_current(app);
     }
 }
 
@@ -869,4 +406,31 @@ pub fn update_trackers(app: &mut Application, win: u64) {
         ws.current_client = Some(c);
         ws.screens[s].workspaces[w].current_client = Some(c);
     };
+}
+
+/// Arrange windows of current workspace in specified layout
+/// 1. Iterate over all screens
+/// 2. Arrange current workspace
+pub fn arrange_current(app: &mut Application) {
+    log!("   |- Arranging...");
+    // 1. Iterate over all screens
+    let screens_amount = app.runtime.screens.len();
+    for index in 0..screens_amount {
+        let current_workspace = app.runtime.screens[index].current_workspace;
+        arrange_workspace(app, index, current_workspace);
+    }
+}
+
+/// Arrange all clients
+/// 1. Iterate over all screens
+/// 2. Iterate over all workspaces
+/// 3. Arrange it
+pub fn arrange_all(app: &mut Application) {
+    let screens_amount = app.runtime.screens.len();
+    for screen in 0..screens_amount {
+        let workspaces_amount = app.runtime.screens[screen].workspaces.len();
+        for workspace in 0..workspaces_amount {
+            arrange_workspace(app, screen, workspace);
+        }
+    }
 }

@@ -1,12 +1,15 @@
 //! Code for setting up WM. Intented to be ran once
 
 use crate::config::*;
+use crate::manage::*;
 use crate::structs::*;
 use crate::utils::*;
-use crate::wrap::xinerama::*;
-use crate::wrap::xlib::*;
+use crate::wrapper::xinerama::*;
+use crate::wrapper::xlib::*;
+
 use std::process::exit;
 use std::vec;
+
 use x11::xlib::ButtonPressMask;
 use x11::xlib::CWCursor;
 use x11::xlib::CWEventMask;
@@ -44,11 +47,12 @@ use x11::xlib::Display;
 ///     * Call [`init_desktops`] (*Will be moved soon to [`logic`] due to usage during runtime*)
 /// 7. Setup shortcuts
 ///     * Call [`init_actions`]
-/// 8. For some unknown reason do dummy [`arrange`] (*Likely will be removed*)
-/// 9. Set error handler for x11
+/// 8. Set error handler for x11
 ///     * Call [`set_error_handler`]
-
+/// 9. Set input masks
+/// 10. Focus on workspace 1
 pub fn setup() -> Application {
+    // 1. Open display
     let display = match open_display(None) {
         Some(d) => d,
         None => {
@@ -56,9 +60,9 @@ pub fn setup() -> Application {
             exit(1);
         }
     };
-
     let root_win = default_root_window(display);
 
+    // 2. Create struct
     let mut app = Application {
         config: config(),
         core: WmCore {
@@ -104,14 +108,15 @@ pub fn setup() -> Application {
         },
     };
 
+    // 3-8
     init_supported_atoms(&mut app);
     init_wm_check(&mut app);
     init_screens(&mut app);
     init_desktops(&mut app);
     init_actions(&mut app);
-    arrange(&mut app);
     set_error_handler();
 
+    // 9. Input mask
     let mut wa: XSetWindowAttributes = XSetWindowAttributes {
         background_pixmap: 0,
         background_pixel: 0,
@@ -147,6 +152,9 @@ pub fn setup() -> Application {
     );
 
     select_input(app.core.display, app.core.root_win, wa.event_mask);
+
+    // 10. Focus
+    focus_on_workspace(&mut app, 0, false);
 
     app
 }

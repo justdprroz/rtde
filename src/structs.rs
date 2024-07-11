@@ -119,7 +119,7 @@ pub struct Runtime {
     pub current_workspace: usize,
     pub current_client: Option<usize>,
     pub mouse_state: MouseState, // win, button, pos
-    pub bars: Vec<Bar>,
+    pub bars: Vec<Bar>, // Not in screens since logically bars are not limited to specific screen
 }
 
 #[derive(Debug)]
@@ -145,16 +145,21 @@ pub struct Workspace {
 
 #[derive(Debug, Default)]
 pub struct Client {
+    // Basic info
     pub window_id: u64,
     pub window_name: String,
+    // Geometry
     pub x: i32,
     pub y: i32,
     pub w: u32,
     pub h: u32,
+    pub border: u32,
+    // Flags
     pub visible: bool,
     pub floating: bool,
     pub fullscreen: bool,
     pub fixed: bool,
+    // Restrictions
     pub minw: i32,
     pub minh: i32,
     pub maxw: i32,

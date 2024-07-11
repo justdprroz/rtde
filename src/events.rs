@@ -23,11 +23,12 @@ use x11::xlib::CWY;
 use x11::xlib::XA_ATOM;
 
 use crate::logic::*;
+use crate::manage::*;
 use crate::mouse::*;
 use crate::setup::*;
 use crate::structs::*;
 use crate::utils::*;
-use crate::wrap::xlib::*;
+use crate::wrapper::xlib::*;
 
 use x11::xlib::Button1;
 
@@ -200,7 +201,7 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
                         1,
                     );
                     cc.fullscreen = true;
-                    arrange(app);
+                    arrange_current(app);
                 } else if !sf && cc.fullscreen {
                     change_property(
                         app.core.display,
@@ -213,7 +214,7 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
                         0,
                     );
                     cc.fullscreen = false;
-                    arrange(app);
+                    arrange_current(app);
                 }
             } else {
                 log!("      |- Unsupported `state`");

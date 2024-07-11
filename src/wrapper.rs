@@ -2,7 +2,69 @@
 
 // #![allow(dead_code)]
 
+pub mod sys {
+    pub fn set_locale(c: i32, l: &str) {
+        unsafe {
+            let locale = std::ffi::CString::new(l).unwrap();
+            libc::setlocale(c, locale.as_ptr());
+        }
+    }
+
+    /// Remove zombie processes after spawning with shortcuts
+    pub fn no_zombies() {
+        use nix::sys::signal::*;
+        unsafe {
+            let sa = SigAction::new(
+                SigHandler::SigIgn,
+                SaFlags::SA_NOCLDSTOP | SaFlags::SA_NOCLDWAIT | SaFlags::SA_RESTART,
+                SigSet::empty(),
+            );
+            let _ = sigaction(SIGCHLD, &sa);
+        }
+    }
+}
+
 pub mod xlib {
+    const EVENT_LOOKUP: [&str; 37] = [
+        "_",
+        "_",
+        "KeyPress",
+        "KeyRelease",
+        "ButtonPress",
+        "ButtonRelease",
+        "MotionNotify",
+        "EnterNotify",
+        "LeaveNotify",
+        "FocusIn",
+        "FocusOut",
+        "KeymapNotify",
+        "Expose",
+        "GraphicsExpose",
+        "NoExpose",
+        "VisibilityNotify",
+        "CreateNotify",
+        "DestroyNotify",
+        "UnmapNotify",
+        "MapNotify",
+        "MapRequest",
+        "ReparentNotify",
+        "ConfigureNotify",
+        "ConfigureRequest",
+        "GravityNotify",
+        "ResizeRequest",
+        "CirculateNotify",
+        "CirculateRequest",
+        "PropertyNotify",
+        "SelectionClear",
+        "SelectionRequest",
+        "SelectionNotify",
+        "ColormapNotify",
+        "ClientMessage",
+        "MappingNotify",
+        "GenericEvent",
+        "LASTEvent",
+    ];
+
     use x11::xlib::{
         Atom, ButtonPress, ButtonRelease, ClientMessage, ConfigureNotify, ConfigureRequest,
         DestroyNotify, EnterNotify, KeyPress, KeyRelease, LeaveNotify, MapRequest, MotionNotify,
@@ -19,13 +81,6 @@ pub mod xlib {
     pub fn set_error_handler() {
         unsafe {
             x11::xlib::XSetErrorHandler(Some(handler_func));
-        }
-    }
-
-    pub fn set_locale(c: i32, l: &str) {
-        unsafe {
-            let locale = std::ffi::CString::new(l).unwrap();
-            libc::setlocale(c, locale.as_ptr());
         }
     }
 
@@ -417,7 +472,7 @@ pub mod xlib {
                     xe.type_ = ConfigureRequest;
                     xe.configure_request = configure_request_event
                 }
-                EEvent::Unmanaged { type_: _ } => {}
+                EEvent::Unmanaged { .. } => {}
             };
 
             x11::xlib::XSendEvent(
@@ -488,7 +543,10 @@ pub mod xlib {
                 x11::xlib::ConfigureRequest => EEvent::ConfigureRequest {
                     configure_request_event: ev.configure_request,
                 },
-                _ => EEvent::Unmanaged { type_: ev.type_ },
+                _ => EEvent::Unmanaged {
+                    type_: ev.type_,
+                    name: EVENT_LOOKUP[ev.type_ as usize],
+                },
             }
         }
     }
@@ -541,6 +599,7 @@ pub mod xlib {
         },
         Unmanaged {
             type_: i32,
+            name: &'static str,
         },
     }
 

@@ -2,7 +2,11 @@
 
 use x11::xlib::{PropModeReplace, XMotionEvent, XA_CARDINAL};
 
-use crate::{change_property, find_window_indexes, move_resize_window, Application};
+use crate::{
+    structs::Application,
+    utils::find_window_indexes,
+    wrapper::xlib::{change_property, move_resize_window},
+};
 
 pub fn move_mouse(app: &mut Application, motion_event: XMotionEvent) {
     let moving_window: u64 = app.runtime.mouse_state.win;

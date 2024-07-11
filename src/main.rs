@@ -9,60 +9,22 @@
 pub mod config;
 pub mod events;
 pub mod logic;
+pub mod manage;
 pub mod mouse;
 pub mod setup;
 pub mod structs;
 pub mod utils;
-pub mod wrap;
+pub mod wrapper;
 
-use crate::events::*;
-use crate::logic::*;
-use crate::setup::*;
-use crate::structs::*;
-use crate::utils::*;
-use crate::wrap::xlib::*;
-
+use events::*;
 use libc::LC_CTYPE;
-
-const EVENT_LOOKUP: [&str; 37] = [
-    "_",
-    "_",
-    "KeyPress",
-    "KeyRelease",
-    "ButtonPress",
-    "ButtonRelease",
-    "MotionNotify",
-    "EnterNotify",
-    "LeaveNotify",
-    "FocusIn",
-    "FocusOut",
-    "KeymapNotify",
-    "Expose",
-    "GraphicsExpose",
-    "NoExpose",
-    "VisibilityNotify",
-    "CreateNotify",
-    "DestroyNotify",
-    "UnmapNotify",
-    "MapNotify",
-    "MapRequest",
-    "ReparentNotify",
-    "ConfigureNotify",
-    "ConfigureRequest",
-    "GravityNotify",
-    "ResizeRequest",
-    "CirculateNotify",
-    "CirculateRequest",
-    "PropertyNotify",
-    "SelectionClear",
-    "SelectionRequest",
-    "SelectionNotify",
-    "ColormapNotify",
-    "ClientMessage",
-    "MappingNotify",
-    "GenericEvent",
-    "LASTEvent",
-];
+use setup::setup;
+use structs::Application;
+use utils::spawn;
+use wrapper::sys::no_zombies;
+use wrapper::sys::set_locale;
+use wrapper::xlib::next_event;
+use wrapper::xlib::EEvent;
 
 fn run(app: &mut Application) {
     log!("|===== run =====");
@@ -87,11 +49,8 @@ fn run(app: &mut Application) {
             EEvent::ConfigureRequest {
                 configure_request_event,
             } => configure_request(app, configure_request_event),
-            EEvent::Unmanaged { type_ } => {
-                log!(
-                    "|- Event `{}` is not currently managed",
-                    EVENT_LOOKUP[type_ as usize]
-                );
+            EEvent::Unmanaged { type_: _, name } => {
+                log!("|- Event `{}` is not currently managed", name);
             }
         };
     }
@@ -105,6 +64,6 @@ fn main() {
         &mut app,
         format!("{}/.rtde/autostart.sh", std::env!("HOME")),
     );
-    scan(&mut app);
+    setup::scan(&mut app);
     run(&mut app);
 }

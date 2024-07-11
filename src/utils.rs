@@ -5,7 +5,7 @@ use std::mem::size_of;
 use std::ptr::null_mut;
 
 use crate::structs::*;
-use crate::wrap::xlib::*;
+use crate::wrapper::xlib::*;
 
 use x11::xlib::Atom;
 use x11::xlib::ClientMessage;
@@ -16,6 +16,7 @@ use x11::xlib::PMinSize;
 use x11::xlib::PropModeAppend;
 use x11::xlib::RevertToPointerRoot;
 use x11::xlib::Success;
+use x11::xlib::XGetWindowProperty;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_WINDOW;
 use x11::xlib::{PropModeReplace, XA_CARDINAL};
@@ -46,19 +47,6 @@ macro_rules! log {
     };
 }
 pub use log;
-
-/// Remove zombie processes after spawning with shortcuts
-pub fn no_zombies() {
-    use nix::sys::signal::*;
-    unsafe {
-        let sa = SigAction::new(
-            SigHandler::SigIgn,
-            SaFlags::SA_NOCLDSTOP | SaFlags::SA_NOCLDWAIT | SaFlags::SA_RESTART,
-            SigSet::empty(),
-        );
-        let _ = sigaction(SIGCHLD, &sa);
-    }
-}
 
 /// Set desktop for specified window
 pub fn update_client_desktop(app: &mut Application, win: u64, desk: u64) {
@@ -266,12 +254,51 @@ pub fn update_normal_hints(app: &mut Application, c: &mut Client) {
     }
 }
 
-/// Shows/Hides all windows on current workspace
-pub fn show_hide_workspace(app: &mut Application) {
-    let ws = &mut app.runtime;
-    let window_decoration_offset = app.config.gap_width + app.config.border_size;
+/// Shows all windows on current workspace
+pub fn show_workspace(app: &mut Application, screen: usize, workspace: usize) {
+    let screen = &mut app.runtime.screens[screen];
+    let workspace = &mut screen.workspaces.get_mut(workspace).unwrap();
     // Iterate over all clients
-    for client in &mut ws.screens[ws.current_screen].workspaces[ws.current_workspace].clients {
+    for client in &mut workspace.clients {
+        // 10. Fullscreen window if needed
+        if client.fullscreen {
+            move_resize_window(
+                app.core.display,
+                client.window_id,
+                screen.x as i32,
+                screen.y as i32,
+                screen.width as u32,
+                screen.height as u32,
+            );
+            set_window_border_width(app.core.display, client.window_id, 0);
+            raise_window(app.core.display, client.window_id);
+        } else {
+            // 11. Update borders
+            set_window_border_width(app.core.display, client.window_id, client.border);
+            // 12. Position windows
+            move_resize_window(
+                app.core.display,
+                client.window_id,
+                client.x + screen.x as i32,
+                client.y + screen.y as i32,
+                client.w,
+                client.h,
+            );
+            if client.floating {
+                raise_window(app.core.display, client.window_id);
+            }
+        };
+        client.visible = true;
+    }
+}
+
+/// Hides all windows on current workspace
+pub fn hide_workspace(app: &mut Application, screen: usize, workspace: usize) {
+    let window_decoration_offset = app.config.gap_width + app.config.border_size;
+    let screen = &mut app.runtime.screens[screen];
+    let workspace = &mut screen.workspaces.get_mut(workspace).unwrap();
+    // Iterate over all clients
+    for client in &mut workspace.clients {
         move_resize_window(
             app.core.display,
             client.window_id,
@@ -281,6 +308,156 @@ pub fn show_hide_workspace(app: &mut Application) {
             client.h,
         );
         // flip visibility state
-        client.visible = !client.visible;
+        client.visible = false;
+    }
+}
+/// Arrange windows of specified workspace in specified layout
+/// 1. Get structs by index
+/// 2. Calculate usable screen sizes, gaps, borders etc
+/// 3. Get amount of clients to be tiled
+/// 4. Check if all client go to master
+/// 5. Iterate all clients in current workspace and calculate geometry
+/// 6. Show maximized clients
+/// 7. Show master clients
+/// 8. Show stack clients
+/// 9. Update calculated geometry
+/// 10. Fullscreen window if needed
+/// 11. Update borders
+/// 12. Position windows
+pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize) {
+    // 1. Get actual structures
+    let screen = &mut app.runtime.screens[screen];
+    let workspace = &mut screen.workspaces[workspace];
+    // 2. Calculate usable screen sizes, gaps, borders etc
+    let bar_offsets = screen.bar_offsets;
+    let screen_height = screen.height - (bar_offsets.up + bar_offsets.down) as i64;
+    let gap = app.config.gap_width as i32;
+    let border = app.config.border_size as u32;
+    let mut master_width = ((screen.width as i32 - gap * 3) as f64 * workspace.master_width) as u32;
+    let stack_width = (screen.width as i32 - gap * 3) - master_width as i32;
+    let mut master_capacity = workspace.master_capacity;
+
+    // 3. Get amount of clients to be tiled
+    let stack_size = workspace.clients.iter().filter(|&c| !c.floating).count();
+    // 4. Check if all client go to master
+    if master_capacity <= 0 || master_capacity >= stack_size as i64 {
+        master_capacity = stack_size as i64;
+        master_width = screen.width as u32 - gap as u32 * 2;
+    }
+    log!("   |- Arranging {} window", stack_size);
+    // 5. Iterate all clients in current workspace and calculate geometry
+    for (index, client) in workspace
+        .clients
+        .iter_mut()
+        .rev()
+        .filter(|c| !c.floating)
+        .enumerate()
+    {
+        // 6. Show maximized clients
+        if stack_size == 1 {
+            client.x = 0;
+            client.y = bar_offsets.up as i32;
+            client.w = screen.width as u32;
+            client.h = screen_height as u32;
+            client.border = 0;
+        } else {
+            if (index as i64) < master_capacity {
+                // 7. Show master clients
+                let win_height =
+                    (screen_height - gap as i64 - master_capacity * gap as i64) / master_capacity;
+                client.x = gap;
+                client.y = bar_offsets.up as i32 + gap + (win_height as i32 + gap) * index as i32;
+                client.w = master_width - 2 * border;
+                client.h = win_height as u32 - 2 * border
+            } else {
+                // 8. Show stack clients
+                let win_height = (screen_height
+                    - gap as i64
+                    - (stack_size as i64 - master_capacity) * gap as i64)
+                    / (stack_size as i64 - master_capacity);
+                client.x = master_width as i32 + (gap * 2);
+                client.y = bar_offsets.up as i32
+                    + gap
+                    + (win_height as i32 + gap) * (index as i64 - master_capacity) as i32;
+                client.w = stack_width as u32 - 2 * border;
+                client.h = win_height as u32 - 2 * border;
+            }
+            client.border = app.config.border_size as u32;
+        }
+    }
+
+    return;
+}
+
+/// Spawn new program by forking
+///
+/// 1. Fork
+/// 2. For child close connections from Parent
+/// 3. Spawn program using sh
+pub fn spawn(app: &mut Application, cmd: String) {
+    unsafe {
+        // 1. Fork
+        match nix::unistd::fork() {
+            Ok(nix::unistd::ForkResult::Parent { child: _ }) => {}
+            Ok(nix::unistd::ForkResult::Child) => {
+                // 2. Close
+                if app.core.display as *mut x11::xlib::Display as usize != 0 {
+                    match nix::unistd::close(x11::xlib::XConnectionNumber(app.core.display)) {
+                        Ok(_) => {}
+                        Err(_) => {}
+                    };
+                }
+                // 3. Spawn
+                let args = [
+                    &std::ffi::CString::from_vec_unchecked("/usr/bin/sh".as_bytes().to_vec()),
+                    &std::ffi::CString::from_vec_unchecked("-c".as_bytes().to_vec()),
+                    &std::ffi::CString::from_vec_unchecked(cmd.as_bytes().to_vec()),
+                ];
+                let _ = nix::unistd::execvp(args[0], &args);
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+pub fn get_client_workspace(app: &mut Application, win: u64) -> Option<(usize, usize)> {
+    let client_desktop = unsafe {
+        let mut actual_type: Atom = 0;
+        let mut actual_format: i32 = 0;
+        let mut nitems: u64 = 0;
+        let mut bytes_after: u64 = 0;
+        let mut prop: *mut u8 = std::ptr::null_mut();
+        XGetWindowProperty(
+            app.core.display,
+            win,
+            app.atoms.net_wm_desktop,
+            0,
+            size_of::<Atom>() as i64,
+            0,
+            XA_CARDINAL,
+            &mut actual_type as *mut Atom,
+            &mut actual_format as *mut i32,
+            &mut nitems as *mut u64,
+            &mut bytes_after as *mut u64,
+            &mut prop as *mut *mut u8,
+        );
+        if actual_type != 0 {
+            Some(*prop as u64)
+        } else {
+            None
+        }
+    };
+
+    match client_desktop {
+        Some(d) => {
+            let s = d as usize / 10;
+            let w = d as usize % 10;
+            if s < app.runtime.screens.len() && w < app.runtime.screens[s].workspaces.len() {
+                Some((s, w))
+            } else {
+                None
+            }
+        }
+        None => None,
     }
 }
