@@ -22,10 +22,10 @@ use x11::xlib::CWX;
 use x11::xlib::CWY;
 use x11::xlib::XA_ATOM;
 
+use crate::helper::*;
 use crate::logic::*;
 use crate::manage::*;
 use crate::mouse::*;
-use crate::setup::*;
 use crate::structs::*;
 use crate::utils::*;
 use crate::wrapper::xlib::*;
@@ -161,7 +161,7 @@ pub fn property_notify(app: &mut Application, property_event: XPropertyEvent) {
 pub fn configure_notify(app: &mut Application, configure_event: XConfigureEvent) {
     if configure_event.window == app.core.root_win {
         log!("|- Got `ConfigureNotify` for `root window` -> Changing monitor layout");
-        init_screens(app);
+        update_screens(app);
     } else if let Some((s, w, c)) = find_window_indexes(app, configure_event.window) {
         let client = &app.runtime.screens[s].workspaces[w].clients[c];
         log!(

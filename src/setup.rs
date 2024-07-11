@@ -4,7 +4,6 @@ use crate::config::*;
 use crate::manage::*;
 use crate::structs::*;
 use crate::utils::*;
-use crate::wrapper::xinerama::*;
 use crate::wrapper::xlib::*;
 
 use std::process::exit;
@@ -23,7 +22,6 @@ use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::SubstructureRedirectMask;
 use x11::xlib::XSetWindowAttributes;
-use x11::xlib::XA_CARDINAL;
 use x11::xlib::XA_WINDOW;
 
 // Allow this imports for documentation
@@ -42,9 +40,9 @@ use x11::xlib::Display;
 /// 4. Create helper window
 ///     * Call [`init_wm_check`]
 /// 5. Create screens
-///     * Call [`init_screens`] (*Will be moved soon to [`logic`] due to usage during runtime*)
+///     * Call [`update_screens`]
 /// 6. Create workspaces
-///     * Call [`init_desktops`] (*Will be moved soon to [`logic`] due to usage during runtime*)
+///     * Call [`update_desktops`]
 /// 7. Setup shortcuts
 ///     * Call [`init_actions`]
 /// 8. Set error handler for x11
@@ -111,8 +109,8 @@ pub fn setup() -> Application {
     // 3-8
     init_supported_atoms(&mut app);
     init_wm_check(&mut app);
-    init_screens(&mut app);
-    init_desktops(&mut app);
+    update_screens(&mut app);
+    update_desktops(&mut app);
     init_actions(&mut app);
     set_error_handler();
 
@@ -270,144 +268,6 @@ pub fn init_supported_atoms(app: &mut Application) {
         x11::xlib::PropModeReplace,
         netatoms.as_mut_ptr() as *mut u8,
         netatoms.len() as i32,
-    );
-}
-
-/// Update screens
-///
-/// 1. Get screens from xinerama
-/// 2. Add more screens if amount of new screens is larger than amount of existing screens
-/// 3. Init newly created screens
-/// 4. Move everything from exceeding screens and delete them
-pub fn init_screens(app: &mut Application) {
-    // 1. Get screens
-    let n = app.runtime.screens.len();
-    let screens = match xinerama_query_screens(app.core.display) {
-        Some(s) => s,
-        None => {
-            eprintln!("Running without xinerama is not supported");
-            exit(1);
-        }
-    };
-    let screens_amount = screens.len();
-
-    // 2. Add new screens
-    for _ in n..screens_amount {
-        app.runtime.screens.push(Screen {
-            number: 0,
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-            workspaces: vec![],
-            current_workspace: 0,
-            bar_offsets: BarOffsets::default(),
-        })
-    }
-
-    // 3. Init screens
-    for (index, screen) in screens.iter().enumerate() {
-        app.runtime.screens[index].number = screen.screen_number as i64;
-        app.runtime.screens[index].x = screen.x_org as i64;
-        app.runtime.screens[index].y = screen.y_org as i64;
-        app.runtime.screens[index].width = screen.width as i64;
-        app.runtime.screens[index].height = screen.height as i64;
-    }
-
-    // 4. Move & delete removed screens
-    for _ in screens_amount..n {
-        if let Some(removed_screen) = app.runtime.screens.pop() {
-            let removed_workspaces = removed_screen.workspaces;
-            for (index, workspace) in removed_workspaces.into_iter().enumerate() {
-                for client in workspace.clients {
-                    update_client_desktop(app, client.window_id, index as u64);
-                    app.runtime.screens[0].workspaces[index]
-                        .clients
-                        .push(client);
-                }
-            }
-        }
-    }
-}
-
-/// Create and set up workspaces
-///
-/// 1. Iterate over all screens
-/// 2. If no workspaces create new
-/// 3. Get names and geometry for workspaces
-/// 4. Setup EWMH info of desktops
-///
-pub fn init_desktops(app: &mut Application) {
-    let mut desktop_names_ewmh: Vec<String> = vec![];
-    let mut viewports: Vec<i64> = vec![];
-
-    // 1. Iterate over all screens
-    for (index, screen) in app.runtime.screens.iter_mut().enumerate() {
-        // 2. Create workspaces if needed
-        if screen.workspaces.is_empty() {
-            for i in 0..NUMBER_OF_DESKTOPS {
-                screen.workspaces.push(Workspace {
-                    number: i as u64,
-                    clients: Vec::new(),
-                    current_client: None,
-                    master_capacity: 1,
-                    master_width: 0.5,
-                });
-            }
-        }
-
-        // 3. Get names & geometry
-        for i in 0..screen.workspaces.len() {
-            if index < app.config.desktops.names.len() {
-                desktop_names_ewmh.push(format!("{}", app.config.desktops.names[index][i]));
-            } else {
-                desktop_names_ewmh.push(format!("{}", i + 1));
-            }
-            viewports.push(screen.x as i64);
-            viewports.push(screen.y as i64);
-        }
-    }
-    // 4. SEt info
-    init_desktop_ewmh_info(app, desktop_names_ewmh, viewports);
-}
-
-/// Update EWMH desktop properties
-pub fn init_desktop_ewmh_info(app: &mut Application, names: Vec<String>, mut viewports: Vec<i64>) {
-    // Set amount of workspaces
-    change_property(
-        app.core.display,
-        app.core.root_win,
-        app.atoms.net_number_of_desktops,
-        XA_CARDINAL,
-        32,
-        PropModeReplace,
-        &mut names.len() as *mut usize as *mut u8,
-        1,
-    );
-
-    // Set workspaces names
-    let mut bytes = vec_string_to_bytes(names);
-    change_property(
-        app.core.display,
-        app.core.root_win,
-        app.atoms.net_desktop_names,
-        app.atoms.utf8string,
-        8,
-        PropModeReplace,
-        bytes.as_mut_ptr(),
-        bytes.len() as i32,
-    );
-
-    // Set workspaces viewports
-    change_property(
-        app.core.display,
-        app.core.root_win,
-        app.atoms.net_desktop_viewport,
-        XA_CARDINAL,
-        32,
-        PropModeReplace,
-        viewports.as_mut_ptr() as *mut u8,
-        viewports.len() as i32,
     );
 }
 

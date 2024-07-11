@@ -8,6 +8,7 @@
 
 pub mod config;
 pub mod events;
+pub mod helper;
 pub mod logic;
 pub mod manage;
 pub mod mouse;
@@ -17,10 +18,10 @@ pub mod utils;
 pub mod wrapper;
 
 use events::*;
+use helper::spawn;
 use libc::LC_CTYPE;
 use setup::setup;
 use structs::Application;
-use utils::spawn;
 use wrapper::sys::no_zombies;
 use wrapper::sys::set_locale;
 use wrapper::xlib::next_event;

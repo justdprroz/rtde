@@ -1,7 +1,12 @@
 //! Main windows manager logic processed as response to events
 
+use std::process::exit;
+
+use crate::config::NUMBER_OF_DESKTOPS;
+use crate::helper::*;
 use crate::structs::*;
 use crate::utils::*;
+use crate::wrapper::xinerama::xinerama_query_screens;
 use crate::wrapper::xlib::*;
 
 use x11::xlib::AnyButton;
@@ -433,4 +438,102 @@ pub fn arrange_all(app: &mut Application) {
             arrange_workspace(app, screen, workspace);
         }
     }
+}
+
+/// Update screens
+///
+/// 1. Get screens from xinerama
+/// 2. Add more screens if amount of new screens is larger than amount of existing screens
+/// 3. Init newly created screens
+/// 4. Move everything from exceeding screens and delete them
+pub fn update_screens(app: &mut Application) {
+    // 1. Get screens
+    let n = app.runtime.screens.len();
+    let screens = match xinerama_query_screens(app.core.display) {
+        Some(s) => s,
+        None => {
+            eprintln!("Running without xinerama is not supported");
+            exit(1);
+        }
+    };
+    let screens_amount = screens.len();
+
+    // 2. Add new screens
+    for _ in n..screens_amount {
+        app.runtime.screens.push(Screen {
+            number: 0,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            workspaces: vec![],
+            current_workspace: 0,
+            bar_offsets: BarOffsets::default(),
+        })
+    }
+
+    // 3. Init screens
+    for (index, screen) in screens.iter().enumerate() {
+        app.runtime.screens[index].number = screen.screen_number as i64;
+        app.runtime.screens[index].x = screen.x_org as i64;
+        app.runtime.screens[index].y = screen.y_org as i64;
+        app.runtime.screens[index].width = screen.width as i64;
+        app.runtime.screens[index].height = screen.height as i64;
+    }
+
+    // 4. Move & delete removed screens
+    for _ in screens_amount..n {
+        if let Some(removed_screen) = app.runtime.screens.pop() {
+            let removed_workspaces = removed_screen.workspaces;
+            for (index, workspace) in removed_workspaces.into_iter().enumerate() {
+                for client in workspace.clients {
+                    update_client_desktop(app, client.window_id, index as u64);
+                    app.runtime.screens[0].workspaces[index]
+                        .clients
+                        .push(client);
+                }
+            }
+        }
+    }
+}
+
+/// Create and set up workspaces
+///
+/// 1. Iterate over all screens
+/// 2. If no workspaces create new
+/// 3. Get names and geometry for workspaces
+/// 4. Setup EWMH info of desktops
+///
+pub fn update_desktops(app: &mut Application) {
+    let mut desktop_names_ewmh: Vec<String> = vec![];
+    let mut viewports: Vec<i64> = vec![];
+
+    // 1. Iterate over all screens
+    for (index, screen) in app.runtime.screens.iter_mut().enumerate() {
+        // 2. Create workspaces if needed
+        if screen.workspaces.is_empty() {
+            for i in 0..NUMBER_OF_DESKTOPS {
+                screen.workspaces.push(Workspace {
+                    number: i as u64,
+                    clients: Vec::new(),
+                    current_client: None,
+                    master_capacity: 1,
+                    master_width: 0.5,
+                });
+            }
+        }
+
+        // 3. Get names & geometry
+        for i in 0..screen.workspaces.len() {
+            if index < app.config.desktops.names.len() {
+                desktop_names_ewmh.push(format!("{}", app.config.desktops.names[index][i]));
+            } else {
+                desktop_names_ewmh.push(format!("{}", i + 1));
+            }
+            viewports.push(screen.x as i64);
+            viewports.push(screen.y as i64);
+        }
+    }
+    // 4. SEt info
+    update_desktop_ewmh_info(app, desktop_names_ewmh, viewports);
 }
