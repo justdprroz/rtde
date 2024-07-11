@@ -1,40 +1,21 @@
+//! All newly defined structs used by window manager
+
 use crate::config::NUMBER_OF_DESKTOPS;
 
-pub struct ApplicationContainer {
-    pub config: ConfigurationContainer,
-    pub runtime: RuntimeContainer,
+pub struct Application {
+    pub config: Configuration,
+    pub core: WmCore,
+    pub runtime: Runtime,
     pub atoms: Atoms,
 }
 
-pub struct ConfigurationContainer {
+pub struct Configuration {
     pub key_actions: Vec<KeyAction>,
     pub gap_width: usize,
     pub border_size: usize,
     pub normal_border_color: Color,
     pub active_border_color: Color,
     pub desktops: DesktopsConfig,
-}
-
-pub struct DesktopsConfig {
-    pub keysyms: [u32; NUMBER_OF_DESKTOPS],
-    pub names: Vec<[String; NUMBER_OF_DESKTOPS]>,
-}
-
-impl DesktopsConfig {
-    pub fn new() -> DesktopsConfig {
-        DesktopsConfig {
-            keysyms: [0; NUMBER_OF_DESKTOPS],
-            names: vec![],
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Color {
-    pub alpha: u8,
-    pub red: u8,
-    pub green: u8,
-    pub blue: u8,
 }
 
 #[derive(Clone)]
@@ -66,6 +47,28 @@ pub enum ScreenSwitching {
     Previous,
 }
 
+#[derive(Clone, Copy)]
+pub struct Color {
+    pub alpha: u8,
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+}
+
+pub struct DesktopsConfig {
+    pub keysyms: [u32; NUMBER_OF_DESKTOPS],
+    pub names: Vec<[String; NUMBER_OF_DESKTOPS]>,
+}
+
+impl DesktopsConfig {
+    pub fn new() -> DesktopsConfig {
+        DesktopsConfig {
+            keysyms: [0; NUMBER_OF_DESKTOPS],
+            names: vec![],
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Atoms {
     pub utf8string: u64,
@@ -91,38 +94,32 @@ pub struct Atoms {
     pub net_desktop_viewport: u64,
 }
 
-/// Stores all states required by WM to operate
-pub struct RuntimeContainer {
+pub struct WmCore {
+    pub display: &'static mut x11::xlib::Display,
+    pub root_win: u64,
+    pub wm_check_win: u64,
+    pub running: bool,
+}
+
+impl std::fmt::Debug for WmCore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WmCore")
+            .field("display", &"Can't be printed")
+            .field("root_win", &self.root_win)
+            .field("wm_check_win", &self.wm_check_win)
+            .field("running", &self.running)
+            .finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct Runtime {
     pub screens: Vec<Screen>,
     pub current_screen: usize,
     pub current_workspace: usize,
     pub current_client: Option<usize>,
-    pub display: &'static mut x11::xlib::Display,
-    pub root_win: u64,
     pub mouse_state: MouseState, // win, button, pos
-    pub wm_check_win: u64,
-    pub running: bool,
-    pub bars: Vec<Bar>,
-}
-
-pub struct MouseState {
-    pub win: u64,
-    pub button: u32,
-    pub pos: (i64, i64),
-}
-
-impl std::fmt::Debug for RuntimeContainer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WindowSystemContainer")
-            .field("screens", &self.screens)
-            .field("current_screen", &self.current_screen)
-            .field("current_workspace", &self.current_workspace)
-            .field("current_client", &self.current_client)
-            .field("display", &"no_display")
-            .field("root_win", &self.root_win)
-            .field("running", &self.running)
-            .finish()
-    }
+    pub bars: Vec<Bar>, // Not in screens since logically bars are not limited to specific screen
 }
 
 #[derive(Debug)]
@@ -135,6 +132,45 @@ pub struct Screen {
     pub workspaces: Vec<Workspace>,
     pub current_workspace: usize,
     pub bar_offsets: BarOffsets,
+}
+
+#[derive(Debug)]
+pub struct Workspace {
+    pub number: u64,
+    pub master_capacity: i64,
+    pub master_width: f64,
+    pub clients: Vec<Client>,
+    pub current_client: Option<usize>,
+}
+
+#[derive(Debug, Default)]
+pub struct Client {
+    // Basic info
+    pub window_id: u64,
+    pub window_name: String,
+    // Geometry
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+    pub border: u32,
+    // Flags
+    pub visible: bool,
+    pub floating: bool,
+    pub fullscreen: bool,
+    pub fixed: bool,
+    // Restrictions
+    pub minw: i32,
+    pub minh: i32,
+    pub maxw: i32,
+    pub maxh: i32,
+}
+
+#[derive(Debug)]
+pub struct MouseState {
+    pub win: u64,
+    pub button: u32,
+    pub pos: (i64, i64),
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -152,31 +188,4 @@ pub struct Bar {
     pub y: i64,
     pub w: usize,
     pub h: usize,
-}
-
-#[derive(Debug)]
-pub struct Workspace {
-    pub number: u64,
-    pub master_capacity: i64,
-    pub master_width: f64,
-    pub clients: Vec<Client>,
-    pub current_client: Option<usize>,
-}
-
-#[derive(Debug, Default)]
-pub struct Client {
-    pub window_id: u64,
-    pub window_name: String,
-    pub x: i32,
-    pub y: i32,
-    pub w: u32,
-    pub h: u32,
-    pub visible: bool,
-    pub floating: bool,
-    pub fullscreen: bool,
-    pub fixed: bool,
-    pub minw: i32,
-    pub minh: i32,
-    pub maxw: i32,
-    pub maxh: i32,
 }

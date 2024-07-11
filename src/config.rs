@@ -1,13 +1,15 @@
+//! Configuration file for editing user defined settings
+
 use crate::structs::{ActionResult::*, DesktopsConfig, ScreenSwitching};
-use crate::structs::{Color, ConfigurationContainer, KeyAction};
+use crate::structs::{Color, Configuration, KeyAction};
 use x11::keysym::*;
 use x11::xlib::Mod4Mask as ModKey;
 use x11::xlib::ShiftMask;
 
 pub const NUMBER_OF_DESKTOPS: usize = 10;
 
-pub fn config() -> ConfigurationContainer {
-    let mut c = ConfigurationContainer {
+pub fn config() -> Configuration {
+    let mut c = Configuration {
         gap_width: 4,
         border_size: 2,
         normal_border_color: Color {
