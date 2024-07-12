@@ -2,11 +2,8 @@
 
 ## Requirement
 - ```dmenu``` as application laucnher
-- ```kitty``` as terminal app
-- ```thunar``` as file manager
 
 ## Features
-- Autostart script located in ```~/.rtde/autostart.sh```
 - Support for workspaces and screens
 - Stack settings for each workspace
 - Tiling window layout
@@ -14,9 +11,10 @@
 ## Installation
 1. Install Rust https://rustup.rs/
 2. Install Xlib using your package manager
-3. Run ```cargo install --debug --path .```. Window manager executable will be installed in ```~/.cargo/bin```
+3. Run ```start.sh```. Window manager executable will be installed in ```~/.cargo/bin```
 4. Add ```exec rust-wm``` to your ```~/.xinitrc```
 5. Further configuration is up to you!
+6. Use ```src/config.rs``` for configuring WM 
 
 ## Shortcuts
 ```ModKey = Mod1Key = Alt```

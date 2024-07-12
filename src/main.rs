@@ -17,7 +17,6 @@ pub mod structs;
 pub mod utils;
 pub mod wrapper;
 
-use std::ffi::CString;
 use std::path::Path;
 
 use events::*;

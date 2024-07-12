@@ -1,16 +1,44 @@
 //! Configuration file for editing user defined settings
 
+// Some essential imports
 use std::ffi::CString;
 
-use crate::structs::{ActionResult::*, AutostartRuleCMD, DesktopsConfig, ScreenSwitching};
-use crate::structs::{Color, Configuration, KeyAction};
+use crate::structs::ActionResult::*;
+use crate::structs::AutostartRuleCMD;
+use crate::structs::Color;
+use crate::structs::Configuration;
+use crate::structs::DesktopsConfig;
+use crate::structs::KeyAction;
+use crate::structs::ScreenSwitching;
+
 use x11::keysym::*;
 use x11::xlib::Mod4Mask as ModKey;
 use x11::xlib::ShiftMask;
 
+// Amount on desktops on each screen
 pub const NUMBER_OF_DESKTOPS: usize = 10;
 
+/// Function for cunfiguring everything(actually not everything) you need
 pub fn config() -> Configuration {
+    //-----------------------------------------------------------------------
+    //                          Local Macro Definitions
+    //-----------------------------------------------------------------------
+    // Macro for creating autostart rules
+    #[macro_export]
+    macro_rules! AUTOSTART {
+        ($cmd:expr) => {
+            AutostartRuleCMD {
+                cmd: $cmd,
+                rule: None,
+            }
+        };
+        ($cmd:expr, $s:expr, $w:expr) => {
+            AutostartRuleCMD {
+                cmd: $cmd,
+                rule: Some(($s, $w)),
+            }
+        };
+    }
     // Macro for creating array of strings used by nix's execvp function
     #[macro_export]
     macro_rules! CMD {
@@ -25,50 +53,34 @@ pub fn config() -> Configuration {
         };
     }
 
-    let mut c = Configuration {
-        gap_width: 4,
-        border_size: 2,
-        normal_border_color: Color {
-            //#404080
-            alpha: 255,
-            red: 64,
-            green: 64,
-            blue: 128,
-        },
-        active_border_color: Color {
-            //#7e2487
-            alpha: 255,
-            red: 126,
-            green: 36,
-            blue: 135,
-        },
-        key_actions: vec![],
-        autostart: vec![],
-        desktops: DesktopsConfig::new(),
+    //-----------------------------------------------------------------------
+    //                               Visuals
+    //-----------------------------------------------------------------------
+    let gap_width = 4;
+    let border_size = 2;
+    let normal_border_color = Color {
+        //#404080
+        alpha: 255,
+        red: 64,
+        green: 64,
+        blue: 128,
+    };
+    let active_border_color = Color {
+        //#7e2487
+        alpha: 255,
+        red: 126,
+        green: 36,
+        blue: 135,
     };
 
-    // Setup shortcuts "Key Actions"
+    //-----------------------------------------------------------------------
+    //                          Shortcuts setup
+    //-----------------------------------------------------------------------
     let terminal = CMD!("alacritty");
     let file_manager = CMD!("thunar");
-    let app_launcher = CMD!(
-        "dmenu_run",
-        "-p",
-        "Open app:",
-        "-sb",
-        "#944b9c",
-        "-nb",
-        "#111222",
-        "-sf",
-        "#ffffff",
-        "-nf",
-        "#9b989c",
-        "-fn",
-        "monospace:size=10",
-        "-b"
-    );
-    let screenshot = CMD!("screenshot");
+    let app_launcher = CMD!("dmenu_run", "-p", "Open app:", "-b");
 
-    c.key_actions.extend(vec![
+    let mut key_actions = vec![
         KeyAction {
             modifier: ModKey,
             keysym: XK_Return,
@@ -84,6 +96,7 @@ pub fn config() -> Configuration {
             keysym: XK_p,
             result: Spawn(app_launcher),
         },
+        // You actually can find these scripts here https://github.com/pavtiger/my-dwm-desktop-enviroment/tree/master/scripts
         KeyAction {
             modifier: 0,
             keysym: XF86XK_AudioRaiseVolume,
@@ -189,45 +202,33 @@ pub fn config() -> Configuration {
             keysym: XK_k,
             result: CycleStack(1),
         },
-    ]);
+    ];
 
-    // Setup desktop names
-    c.desktops.keysyms = [XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0];
-
-    c.desktops.names =
+    //-----------------------------------------------------------------------
+    //                          Desktops Setup
+    //-----------------------------------------------------------------------
+    let mut desktops = DesktopsConfig::new();
+    desktops.keysyms = [XK_1, XK_2, XK_3, XK_4, XK_5, XK_6, XK_7, XK_8, XK_9, XK_0];
+    desktops.names =
         vec![["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map(|s| s.to_string())];
 
-    for (i, k) in c.desktops.keysyms.iter().enumerate() {
-        c.key_actions.push(KeyAction {
+    for (i, k) in desktops.keysyms.iter().enumerate() {
+        key_actions.push(KeyAction {
             modifier: ModKey,
             keysym: *k,
             result: FocusOnWorkspace(i as u64),
         });
-        c.key_actions.push(KeyAction {
+        key_actions.push(KeyAction {
             modifier: ModKey | ShiftMask,
             keysym: *k,
             result: MoveToWorkspace(i as u64),
         });
     }
 
-    // Macro for creating autostart rules
-    #[macro_export]
-    macro_rules! AUTOSTART {
-        ($cmd:expr) => {
-            AutostartRuleCMD {
-                cmd: $cmd,
-                rule: None,
-            }
-        };
-        ($cmd:expr, $s:expr, $w:expr) => {
-            AutostartRuleCMD {
-                cmd: $cmd,
-                rule: Some(($s, $w)),
-            }
-        };
-    }
-
-    c.autostart = vec![
+    //-----------------------------------------------------------------------
+    //                        Autostart setup
+    //-----------------------------------------------------------------------
+    let autostart = vec![
         // Positioned
         AUTOSTART!(CMD!("alacritty"), 0, 0),
         AUTOSTART!(CMD!("firefox"), 0, 1),
@@ -245,6 +246,16 @@ pub fn config() -> Configuration {
         AUTOSTART!(CMD!("touch", "/tmp/rtwmrunning")),
     ];
 
-    // return local temporary config
-    return c;
+    //-----------------------------------------------------------------------
+    //                      Create config & return
+    //-----------------------------------------------------------------------
+    return Configuration {
+        key_actions,
+        gap_width,
+        border_size,
+        normal_border_color,
+        active_border_color,
+        desktops,
+        autostart,
+    };
 }
