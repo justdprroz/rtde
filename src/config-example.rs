@@ -129,11 +129,6 @@ pub fn config() -> Configuration {
         },
         KeyAction {
             modifier: ModKey | ShiftMask,
-            keysym: XK_s,
-            result: Spawn(screenshot),
-        },
-        KeyAction {
-            modifier: ModKey | ShiftMask,
             keysym: XK_q,
             result: Quit,
         },
