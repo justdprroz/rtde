@@ -197,6 +197,10 @@ pub fn manage_client(app: &mut Application, win: u64) {
 }
 
 pub fn update_docks(app: &mut Application) {
+    for screen in &mut app.runtime.screens {
+        screen.bar_offsets = BarOffsets::default();
+    }
+
     for bar in &app.runtime.bars {
         let dx = bar.x;
         let dy = bar.y;

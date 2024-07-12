@@ -314,6 +314,11 @@ pub fn update_master_width(app: &mut Application, w: f64) {
         .master_width += w;
     // Rearrange windows
     arrange_current(app);
+    show_workspace(
+        app,
+        app.runtime.current_screen,
+        app.runtime.current_workspace,
+    );
 }
 
 pub fn update_master_capacity(app: &mut Application, i: i64) {
@@ -322,18 +327,32 @@ pub fn update_master_capacity(app: &mut Application, i: i64) {
         .master_capacity += i;
     // Rearrange windows
     arrange_current(app);
+    show_workspace(
+        app,
+        app.runtime.current_screen,
+        app.runtime.current_workspace,
+    );
 }
 
 pub fn toggle_float(app: &mut Application) {
     if let Some(c) = app.runtime.current_client {
-        let state = app.runtime.screens[app.runtime.current_screen].workspaces
+        let client = &mut app.runtime.screens[app.runtime.current_screen].workspaces
             [app.runtime.current_workspace]
-            .clients[c]
-            .floating;
-        app.runtime.screens[app.runtime.current_screen].workspaces[app.runtime.current_workspace]
-            .clients[c]
-            .floating = !state;
+            .clients[c];
+        client.floating = !client.floating;
+
+        client.border = if client.floating {
+            app.config.border_size as u32
+        } else {
+            0
+        };
+
         arrange_current(app);
+        show_workspace(
+            app,
+            app.runtime.current_screen,
+            app.runtime.current_workspace,
+        );
     }
 }
 

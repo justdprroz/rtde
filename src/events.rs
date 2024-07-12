@@ -201,7 +201,6 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
                         1,
                     );
                     cc.fullscreen = true;
-                    arrange_current(app);
                 } else if !sf && cc.fullscreen {
                     change_property(
                         app.core.display,
@@ -214,8 +213,13 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
                         0,
                     );
                     cc.fullscreen = false;
-                    arrange_current(app);
                 }
+                arrange_current(app);
+                show_workspace(
+                    app,
+                    app.runtime.current_screen,
+                    app.runtime.current_workspace,
+                );
             } else {
                 log!("      |- Unsupported `state`");
             }
