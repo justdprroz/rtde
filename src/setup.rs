@@ -80,6 +80,7 @@ pub fn setup() -> Application {
             current_workspace: 0,
             current_client: None,
             bars: vec![],
+            autostart_rules: vec![],
         },
         atoms: Atoms {
             utf8string: 0,
@@ -103,6 +104,7 @@ pub fn setup() -> Application {
             net_desktop_viewport: 0,
             net_desktop_names: 0,
             net_wm_desktop: 0,
+            net_wm_pid: 0,
         },
     };
 
@@ -242,6 +244,7 @@ pub fn init_supported_atoms(app: &mut Application) {
         net_desktop_names: intern_atom!("_NET_DESKTOP_NAMES"),
         net_desktop_viewport: intern_atom!("_NET_DESKTOP_VIEWPORT"),
         net_wm_desktop: intern_atom!("_NET_WM_DESKTOP"),
+        net_wm_pid: intern_atom!("_NET_WM_PID"),
     };
     let mut netatoms = vec![
         app.atoms.net_active_window,

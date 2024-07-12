@@ -49,7 +49,7 @@ pub fn key_press(app: &mut Application, key_event: XKeyEvent) {
                 }
                 ActionResult::Spawn(cmd) => {
                     log!("   |- Got `Spawn` Action");
-                    spawn(app, cmd.clone());
+                    spawn(app, &cmd.clone(), None);
                 }
                 ActionResult::MoveToScreen(d) => {
                     move_to_screen(app, *d);

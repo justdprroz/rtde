@@ -1,6 +1,8 @@
 //! Configuration file for editing user defined settings
 
-use crate::structs::{ActionResult::*, DesktopsConfig, ScreenSwitching};
+use std::ffi::CString;
+
+use crate::structs::{ActionResult::*, AutostartRuleCMD, DesktopsConfig, ScreenSwitching};
 use crate::structs::{Color, Configuration, KeyAction};
 use x11::keysym::*;
 use x11::xlib::Mod4Mask as ModKey;
@@ -9,6 +11,20 @@ use x11::xlib::ShiftMask;
 pub const NUMBER_OF_DESKTOPS: usize = 10;
 
 pub fn config() -> Configuration {
+    // Macro for creating array of strings used by nix's execvp function
+    #[macro_export]
+    macro_rules! CMD {
+        ( $( $e:expr ),* ) => {
+            {
+                let mut temp_vec = Vec::new();
+                $(
+                    temp_vec.push(CString::new($e).unwrap());
+                )*
+                temp_vec
+            }
+        };
+    }
+
     let mut c = Configuration {
         gap_width: 4,
         border_size: 2,
@@ -27,14 +43,30 @@ pub fn config() -> Configuration {
             blue: 135,
         },
         key_actions: vec![],
+        autostart: vec![],
         desktops: DesktopsConfig::new(),
     };
 
     // Setup shortcuts "Key Actions"
-    let terminal: String = "alacritty".to_string();
-    let file_manager: String = "thunar".to_string();
-    let app_launcher: String = "dmenu_run -p \"Open app:\" -sb \"#944b9c\" -nb \"#111222\" -sf \"#ffffff\" -nf \"#9b989c\" -fn \"monospace:size=10\" -b".to_string();
-    let screenshot: String = "screenshot".to_string();
+    let terminal = CMD!("alacritty");
+    let file_manager = CMD!("thunar");
+    let app_launcher = CMD!(
+        "dmenu_run",
+        "-p",
+        "Open app:",
+        "-sb",
+        "#944b9c",
+        "-nb",
+        "#111222",
+        "-sf",
+        "#ffffff",
+        "-nf",
+        "#9b989c",
+        "-fn",
+        "monospace:size=10",
+        "-b"
+    );
+    let screenshot = CMD!("screenshot");
 
     c.key_actions.extend(vec![
         KeyAction {
@@ -55,32 +87,32 @@ pub fn config() -> Configuration {
         KeyAction {
             modifier: 0,
             keysym: XF86XK_AudioRaiseVolume,
-            result: Spawn("volumeup".to_string()),
+            result: Spawn(CMD!("volumeup")),
         },
         KeyAction {
             modifier: 0,
             keysym: XF86XK_AudioLowerVolume,
-            result: Spawn("volumedown".to_string()),
+            result: Spawn(CMD!("volumedown")),
         },
         KeyAction {
             modifier: 0,
             keysym: XF86XK_AudioMute,
-            result: Spawn("volumemute".to_string()),
+            result: Spawn(CMD!("volumemute")),
         },
         KeyAction {
             modifier: 0,
             keysym: XF86XK_AudioPlay,
-            result: Spawn("playerctl play-pause".to_string()),
+            result: Spawn(CMD!("playerctl play-pause")),
         },
         KeyAction {
             modifier: 0,
             keysym: XF86XK_AudioNext,
-            result: Spawn("playerctl next".to_string()),
+            result: Spawn(CMD!("playerctl next")),
         },
         KeyAction {
             modifier: 0,
             keysym: XF86XK_AudioPrev,
-            result: Spawn("playerctl previous".to_string()),
+            result: Spawn(CMD!("playerctl previous")),
         },
         KeyAction {
             modifier: ModKey | ShiftMask,
@@ -177,6 +209,41 @@ pub fn config() -> Configuration {
             result: MoveToWorkspace(i as u64),
         });
     }
+
+    // Macro for creating autostart rules
+    #[macro_export]
+    macro_rules! AUTOSTART {
+        ($cmd:expr) => {
+            AutostartRuleCMD {
+                cmd: $cmd,
+                rule: None,
+            }
+        };
+        ($cmd:expr, $s:expr, $w:expr) => {
+            AutostartRuleCMD {
+                cmd: $cmd,
+                rule: Some(($s, $w)),
+            }
+        };
+    }
+
+    c.autostart = vec![
+        // Positioned
+        AUTOSTART!(CMD!("alacritty"), 0, 0),
+        AUTOSTART!(CMD!("firefox"), 0, 1),
+        AUTOSTART!(CMD!("telegram-desktop"), 0, 3),
+        // Cli
+        AUTOSTART!(CMD!("picom")),
+        AUTOSTART!(CMD!("polybar")),
+        AUTOSTART!(CMD!(
+            "setxkbmap",
+            "us,ru",
+            "-option",
+            "grp:win_space_toggle"
+        )),
+        AUTOSTART!(CMD!(std::env!("HOME").to_owned() + "/.fehbg")),
+        AUTOSTART!(CMD!("touch", "/tmp/rtwmrunning")),
+    ];
 
     // return local temporary config
     return c;

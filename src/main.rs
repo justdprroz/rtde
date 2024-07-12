@@ -17,6 +17,9 @@ pub mod structs;
 pub mod utils;
 pub mod wrapper;
 
+use std::ffi::CString;
+use std::path::Path;
+
 use events::*;
 use helper::spawn;
 use libc::LC_CTYPE;
@@ -61,10 +64,16 @@ fn main() {
     set_locale(LC_CTYPE, "");
     no_zombies();
     let mut app: Application = setup();
-    spawn(
-        &mut app,
-        format!("{}/.rtde/autostart.sh", std::env!("HOME")),
-    );
+    if !Path::new("/tmp/rtwmrunning").exists() {
+        for rule in app.config.autostart.clone() {
+            eprintln!("{:?}", rule);
+            spawn(&mut app, &rule.cmd, rule.rule);
+        }
+    }
+    // spawn(
+    //     &mut app,
+    //     format!("{}/.rtde/autostart.sh", std::env!("HOME")),
+    // );
     setup::scan(&mut app);
     run(&mut app);
 }

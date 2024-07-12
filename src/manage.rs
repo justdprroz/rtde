@@ -109,6 +109,12 @@ pub fn manage_client(app: &mut Application, win: u64) {
         c.floating = c.fixed || trans != 0;
     }
 
+    c.border = if c.floating {
+        app.config.border_size as u32
+    } else {
+        0
+    };
+
     // 8. Set input mask for events
     select_input(
         app.core.display,
@@ -128,7 +134,32 @@ pub fn manage_client(app: &mut Application, win: u64) {
     // 10. Get window workspace
     let (client_screen, client_workspace) = match get_client_workspace(app, win) {
         Some(sw) => sw,
-        None => (app.runtime.current_screen, app.runtime.current_workspace),
+        // None => (app.runtime.current_screen, app.runtime.current_workspace),
+        None => match get_client_pid(app, win) {
+            Some(pid) => {
+                println!("{}", pid);
+                match app
+                    .runtime
+                    .autostart_rules
+                    .iter()
+                    .position(|r| r.pid == pid)
+                {
+                    Some(ri) => {
+                        let rule = &app.runtime.autostart_rules[ri];
+                        eprintln!("{:?}", rule);
+                        if rule.screen < app.runtime.screens.len()
+                            && rule.workspace < app.runtime.screens[rule.screen].workspaces.len()
+                        {
+                            (rule.screen, rule.workspace)
+                        } else {
+                            (app.runtime.current_screen, app.runtime.current_workspace)
+                        }
+                    }
+                    None => (app.runtime.current_screen, app.runtime.current_workspace),
+                }
+            }
+            None => (app.runtime.current_screen, app.runtime.current_workspace),
+        },
     };
 
     let workspace = &mut app.runtime.screens[client_screen].workspaces[client_workspace];

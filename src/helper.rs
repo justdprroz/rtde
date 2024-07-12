@@ -1,5 +1,6 @@
 //! Set of functions used by [`crate::logic`]
 
+use std::ffi::CStr;
 use std::mem::size_of;
 use std::ptr::null_mut;
 
@@ -364,14 +365,22 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
 
 /// Spawn new program by forking
 ///
-/// 1. Fork
+/// 1. Fork get child PID for rules
 /// 2. For child close connections from Parent
 /// 3. Spawn program using sh
-pub fn spawn(app: &mut Application, cmd: String) {
+pub fn spawn<S: AsRef<CStr>>(app: &mut Application, args: &[S], rule: Option<(usize, usize)>) {
     unsafe {
-        // 1. Fork
         match nix::unistd::fork() {
-            Ok(nix::unistd::ForkResult::Parent { child: _ }) => {}
+            Ok(nix::unistd::ForkResult::Parent { child }) => {
+                // 1. Add child to rules if specified
+                if let Some((s, w)) = rule {
+                    app.runtime.autostart_rules.push(AutostartRulePID {
+                        pid: child.into(),
+                        screen: s,
+                        workspace: w,
+                    })
+                }
+            }
             Ok(nix::unistd::ForkResult::Child) => {
                 // 2. Close
                 if app.core.display as *mut x11::xlib::Display as usize != 0 {
@@ -380,15 +389,39 @@ pub fn spawn(app: &mut Application, cmd: String) {
                         Err(_) => {}
                     };
                 }
-                // 3. Spawn
-                let args = [
-                    &std::ffi::CString::from_vec_unchecked("/usr/bin/sh".as_bytes().to_vec()),
-                    &std::ffi::CString::from_vec_unchecked("-c".as_bytes().to_vec()),
-                    &std::ffi::CString::from_vec_unchecked(cmd.as_bytes().to_vec()),
-                ];
-                let _ = nix::unistd::execvp(args[0], &args);
+                // 3. Run
+                let _ = nix::unistd::execvp(args[0].as_ref(), &args);
             }
             Err(_) => {}
+        }
+    }
+}
+
+pub fn get_client_pid(app: &mut Application, win: u64) -> Option<i32> {
+    unsafe {
+        let mut actual_type: Atom = 0;
+        let mut actual_format: i32 = 0;
+        let mut nitems: u64 = 0;
+        let mut bytes_after: u64 = 0;
+        let mut prop: *mut u8 = std::ptr::null_mut();
+        XGetWindowProperty(
+            app.core.display,
+            win,
+            app.atoms.net_wm_pid,
+            0,
+            size_of::<Atom>() as i64,
+            0,
+            XA_CARDINAL,
+            &mut actual_type as *mut Atom,
+            &mut actual_format as *mut i32,
+            &mut nitems as *mut u64,
+            &mut bytes_after as *mut u64,
+            &mut prop as *mut *mut u8,
+        );
+        if actual_type != 0 {
+            Some(*prop as i32 + *prop.wrapping_add(1) as i32 * 256)
+        } else {
+            None
         }
     }
 }

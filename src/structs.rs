@@ -1,5 +1,7 @@
 //! All newly defined structs used by window manager
 
+use std::ffi::CString;
+
 use crate::config::NUMBER_OF_DESKTOPS;
 
 pub struct Application {
@@ -16,6 +18,13 @@ pub struct Configuration {
     pub normal_border_color: Color,
     pub active_border_color: Color,
     pub desktops: DesktopsConfig,
+    pub autostart: Vec<AutostartRuleCMD>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutostartRuleCMD {
+    pub cmd: Vec<CString>,
+    pub rule: Option<(usize, usize)>,
 }
 
 #[derive(Clone)]
@@ -28,7 +37,7 @@ pub struct KeyAction {
 #[derive(Debug, Clone)]
 pub enum ActionResult {
     KillClient,
-    Spawn(String),
+    Spawn(Vec<CString>),
     MoveToScreen(ScreenSwitching),
     FocusOnScreen(ScreenSwitching),
     UpdateMasterCapacity(i64),
@@ -92,6 +101,7 @@ pub struct Atoms {
     pub net_wm_desktop: u64,
     pub net_desktop_names: u64,
     pub net_desktop_viewport: u64,
+    pub net_wm_pid: u64,
 }
 
 pub struct WmCore {
@@ -120,6 +130,14 @@ pub struct Runtime {
     pub current_client: Option<usize>,
     pub mouse_state: MouseState, // win, button, pos
     pub bars: Vec<Bar>, // Not in screens since logically bars are not limited to specific screen
+    pub autostart_rules: Vec<AutostartRulePID>,
+}
+
+#[derive(Debug)]
+pub struct AutostartRulePID {
+    pub pid: i32,
+    pub screen: usize,
+    pub workspace: usize,
 }
 
 #[derive(Debug)]
