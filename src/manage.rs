@@ -1,13 +1,11 @@
 //! Functions related to adding/removing windows to/from WM runtime
 
 use x11::xlib::CWBorderWidth;
-use x11::xlib::CurrentTime;
 use x11::xlib::EnterWindowMask;
 use x11::xlib::FocusChangeMask;
 use x11::xlib::PropModeAppend;
 use x11::xlib::PropModeReplace;
 use x11::xlib::PropertyChangeMask;
-use x11::xlib::RevertToPointerRoot;
 use x11::xlib::StructureNotifyMask;
 use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::XWindowAttributes;
@@ -122,13 +120,9 @@ pub fn manage_client(app: &mut Application, win: u64) {
         EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
     );
 
-    // 9. set previously active client border to normal
+    // 9. Unfocus current windows
     if let Some(cw) = get_current_client_id(app) {
-        set_window_border(
-            app.core.display,
-            cw,
-            argb_to_int(app.config.normal_border_color),
-        );
+        unfocus(app, cw);
     }
 
     // 10. Get window workspace
@@ -193,14 +187,7 @@ pub fn manage_client(app: &mut Application, win: u64) {
         stack_mode: 0,
     };
     configure_window(app.core.display, win, CWBorderWidth as u32, &mut wc);
-    set_window_border(
-        app.core.display,
-        win,
-        argb_to_int(app.config.active_border_color),
-    );
-    update_client_name(app, win);
-    raise_window(app.core.display, win);
-    set_input_focus(app.core.display, win, RevertToPointerRoot, CurrentTime);
+
     let data: [i64; 2] = [1, 0];
     change_property(
         app.core.display,
@@ -222,6 +209,12 @@ pub fn manage_client(app: &mut Application, win: u64) {
     }
     // 16. Tag window as mapped
     map_window(app.core.display, win);
+
+    if client_screen == app.runtime.current_screen
+        && client_workspace == app.runtime.current_workspace
+    {
+        focus(app, win);
+    }
 }
 
 pub fn update_docks(app: &mut Application) {
