@@ -96,39 +96,50 @@ pub fn kill_client(app: &mut Application) {
 pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
     // Check if window is selected
     if let Some(index) = app.runtime.current_client {
-        // Get current screen index
-        let mut cs = app.runtime.current_screen;
         // Update index depending on supplied direction
-        cs = match d {
-            ScreenSwitching::Next => (cs + 1) % app.runtime.screens.len(),
+        let new_screen_index = match d {
+            ScreenSwitching::Next => (app.runtime.current_screen + 1) % app.runtime.screens.len(),
             ScreenSwitching::Previous => {
-                (cs + app.runtime.screens.len() - 1) % app.runtime.screens.len()
+                (app.runtime.current_screen + app.runtime.screens.len() - 1) % app.runtime.screens.len()
             }
         };
+
         // Pop client
-        let cc = app.runtime.screens[app.runtime.current_screen].workspaces
+        let mut client = app.runtime.screens[app.runtime.current_screen].workspaces
             [app.runtime.current_workspace]
             .clients
             .remove(index);
         set_window_border(
             app.core.display,
-            cc.window_id,
+            client.window_id,
             argb_to_int(app.config.normal_border_color),
         );
 
-        let cur_workspace: usize = app.runtime.screens[cs].current_workspace + cs * 10;
+        // Update workspace
+        let new_workspace: usize = app.runtime.screens[new_screen_index].current_workspace + new_screen_index * 10;
+        update_client_desktop(app, client.window_id, new_workspace as u64);
 
-        update_client_desktop(app, cc.window_id, cur_workspace as u64);
+        // For floating windows change positions
+        if client.floating {
+            let cur_screen = &app.runtime.screens[app.runtime.current_screen];
+            let rel_x = client.x - cur_screen.x as i32;
+            let rel_y = client.y - cur_screen.y as i32;
+
+            let new_screen = &app.runtime.screens[new_screen_index];
+            client.x = new_screen.x as i32 + rel_x;
+            client.y = new_screen.y as i32 + rel_y;
+        }
 
         // Update client tracker on current screen
         shift_current_client(app, None, None);
         // Get workspace tracker(borrow checker is really mad at me)
-        let nw = app.runtime.screens[cs].current_workspace;
+        let nw = app.runtime.screens[new_screen_index].current_workspace;
         // Add window to stack of another display
-        app.runtime.screens[cs].workspaces[nw].clients.push(cc);
+        app.runtime.screens[new_screen_index].workspaces[nw].clients.push(client);
+
         // Arrange all monitors
         arrange_current(app);
-        show_workspace(app, cs, app.runtime.screens[cs].current_workspace);
+        show_workspace(app, new_screen_index, app.runtime.screens[new_screen_index].current_workspace);
         show_workspace(
             app,
             app.runtime.current_screen,

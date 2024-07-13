@@ -33,22 +33,17 @@ use crate::wrapper::xlib::*;
 use x11::xlib::Button1;
 
 pub fn key_press(app: &mut Application, key_event: XKeyEvent) {
-    log!("|- Got keyboard event");
     // Iterate over key actions matching current key input
     for action in app.config.key_actions.clone() {
         if key_event.keycode == keysym_to_keycode(app.core.display, action.keysym)
             && key_event.state == action.modifier
         {
-            // Log action type
-            log!("|- Got {:?} action", &action.result);
             // Match action result and run related function
             match &action.result {
                 ActionResult::KillClient => {
-                    log!("   |- Got `KillClient` Action");
                     kill_client(app);
                 }
                 ActionResult::Spawn(cmd) => {
-                    log!("   |- Got `Spawn` Action");
                     spawn(app, &cmd.clone(), None);
                 }
                 ActionResult::MoveToScreen(d) => {
@@ -64,7 +59,6 @@ pub fn key_press(app: &mut Application, key_event: XKeyEvent) {
                     focus_on_workspace(app, *n, true);
                 }
                 ActionResult::Quit => {
-                    log!("   |- Got `Quit` Action. `Quiting`");
                     app.core.running = false;
                 }
                 ActionResult::UpdateMasterCapacity(i) => {
@@ -125,14 +119,30 @@ pub fn enter_notify(app: &mut Application, crossing_event: XCrossingEvent) {
 
 pub fn destroy_notify(app: &mut Application, destroy_notify_event: XDestroyWindowEvent) {
     let ew: u64 = destroy_notify_event.window;
-    log!("|- `{}` destroyed", get_client_name(app, ew));
+    log!("|- `{}` ({}) destroyed", get_client_name(app, ew), ew);
     unmanage_window(app, ew);
 }
 
 pub fn unmap_notify(app: &mut Application, unmap_event: XUnmapEvent) {
     let ew: u64 = unmap_event.window;
-    log!("|- `{}` unmapped", get_client_name(app, ew));
-    unmanage_window(app, ew);
+    log!("|- `{}` ({}) unmapped", get_client_name(app, ew), ew);
+    if let Some(_) = find_window_indexes(app, ew) {
+        if unmap_event.send_event == 1 {
+            let data: [i64; 2] = [0, 0];
+            change_property(
+                app.core.display,
+                ew,
+                app.atoms.wm_state,
+                app.atoms.wm_state,
+                32,
+                PropModeReplace,
+                &data as *const [i64; 2] as *mut u8,
+                2,
+            );
+        } else {
+            unmanage_window(app, ew);
+        }
+    }
 }
 
 pub fn motion_notify(
@@ -170,7 +180,11 @@ pub fn configure_notify(app: &mut Application, configure_event: XConfigureEvent)
             client.window_name
         );
     } else {
-        log!("|- Got `ConfigureNotify` from `Unmanaged window`");
+        log!(
+            "|- Got `ConfigureNotify` od {:#?} from {}",
+            configure_event,
+            configure_event.window
+        );
     }
 }
 
@@ -236,7 +250,11 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
 }
 
 pub fn configure_request(app: &mut Application, conf_req_event: XConfigureRequestEvent) {
-    log!("|- Got `ConfigureRequest` for `{}`", conf_req_event.window);
+    log!(
+        "|- Got `ConfigureRequest` for `{}` ({})",
+        get_client_name(app, conf_req_event.window),
+        conf_req_event.window
+    );
     if let Some((s, w, c)) = find_window_indexes(app, conf_req_event.window) {
         let sw = app.runtime.screens[s].width as i32;
         let sh = app.runtime.screens[s].height as i32;

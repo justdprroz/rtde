@@ -253,8 +253,10 @@ pub fn show_workspace(app: &mut Application, screen: usize, workspace: usize) {
             move_resize_window(
                 app.core.display,
                 client.window_id,
-                client.x + screen.x as i32,
-                client.y + screen.y as i32,
+                // client.x + screen.x as i32,
+                // client.y + screen.y as i32,
+                client.x,
+                client.y,
                 client.w,
                 client.h,
             );
@@ -358,6 +360,9 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
             }
             client.border = app.config.border_size as u32;
         }
+
+        client.x += screen.x as i32;
+        client.y += screen.y as i32;
     }
 
     return;

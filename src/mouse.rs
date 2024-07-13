@@ -11,121 +11,120 @@ pub fn move_mouse(app: &mut Application, motion_event: XMotionEvent) {
     let moving_window: u64 = app.runtime.mouse_state.win;
 
     if let Some((s, w, c)) = find_window_indexes(app, moving_window) {
-        let sx = app.runtime.screens[s].x as i32;
-        let sy = app.runtime.screens[s].y as i32;
-        let sw = app.runtime.screens[s].width as i32;
-        let sh = app.runtime.screens[s].height as i32;
-        let (mx, my) = (motion_event.x_root as i64, motion_event.y_root as i64);
-        let (px, py) = app.runtime.mouse_state.pos;
-        let (dx, dy) = (mx - px, my - py);
+        let screen_x = app.runtime.screens[s].x as i32;
+        let screen_y = app.runtime.screens[s].y as i32;
+        let screen_w = app.runtime.screens[s].width as i32;
+        let screen_h = app.runtime.screens[s].height as i32;
+        let (mouse_x, mouse_y) = (motion_event.x_root as i64, motion_event.y_root as i64);
+        let (pos_x, pos_y) = app.runtime.mouse_state.pos;
+        let (dx, dy) = (mouse_x - pos_x, mouse_y - pos_y);
 
+        // Screen Bar Left/Up/Right/Down
         let (sbl, sbu, sbr, sbd) = {
-            let s = &app.runtime.screens[s];
-            let sbl = s.x + s.bar_offsets.left as i64;
-            let sbu = s.y + s.bar_offsets.up as i64;
-            let sbr = s.x + s.width - s.bar_offsets.right as i64;
-            let sbd = s.y + s.height - s.bar_offsets.down as i64;
+            let screen = &app.runtime.screens[s];
+            let sbl = screen.x + screen.bar_offsets.left as i64;
+            let sbu = screen.y + screen.bar_offsets.up as i64;
+            let sbr = screen.x + screen.width - screen.bar_offsets.right as i64;
+            let sbd = screen.y + screen.height - screen.bar_offsets.down as i64;
             (sbl, sbu, sbr, sbd)
         };
 
-        let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
-        let mut nx = cc.x + dx as i32;
-        let mut ny = cc.y + dy as i32;
+        let client = &mut app.runtime.screens[s].workspaces[w].clients[c];
+        let mut new_x = client.x + dx as i32;
+        let mut new_y = client.y + dy as i32;
 
         // Stick to screen border
         let stick = 50;
         let unstick = 30 as i64;
 
-        if (nx < sbl as i32 + stick)
-            && (dx < 0 && nx > (sbl - unstick) as i32
-                || nx > sbl as i32 && nx < (sbl + unstick) as i32)
+        if (new_x < sbl as i32 + stick)
+            && (dx < 0 && new_x > (sbl - unstick) as i32
+                || new_x > sbl as i32 && new_x < (sbl + unstick) as i32)
         {
-            nx = sbl as i32;
+            new_x = sbl as i32;
         }
-        if (nx + cc.w as i32) > sbr as i32 - stick
-            && (dx > 0 && (nx + cc.w as i32) < (sbr + unstick) as i32
-                || (nx + cc.w as i32) < sbr as i32 && (nx + cc.w as i32) > (sbr - unstick) as i32)
+        if (new_x + client.w as i32) > sbr as i32 - stick
+            && (dx > 0 && (new_x + client.w as i32) < (sbr + unstick) as i32
+                || (new_x + client.w as i32) < sbr as i32 && (new_x + client.w as i32) > (sbr - unstick) as i32)
         {
-            nx = sbr as i32 - cc.w as i32 - 2 * app.config.border_size as i32;
+            new_x = sbr as i32 - client.w as i32 - 2 * app.config.border_size as i32;
         }
 
-        if ny < sbu as i32 + stick
-            && (dy < 0 && ny > (sbu - unstick) as i32
-                || ny > sbu as i32 && ny < (sbu + unstick) as i32)
+        if new_y < sbu as i32 + stick
+            && (dy < 0 && new_y > (sbu - unstick) as i32
+                || new_y > sbu as i32 && new_y < (sbu + unstick) as i32)
         {
-            ny = sbu as i32;
+            new_y = sbu as i32;
         }
-        if (ny + cc.h as i32) > sbd as i32 - stick
-            && (dy > 0 && (ny + cc.h as i32) < (sbd + unstick) as i32
-                || (ny + cc.h as i32) < sbd as i32 && (ny + cc.h as i32) > (sbd - unstick) as i32)
+        if (new_y + client.h as i32) > sbd as i32 - stick
+            && (dy > 0 && (new_y + client.h as i32) < (sbd + unstick) as i32
+                || (new_y + client.h as i32) < sbd as i32 && (new_y + client.h as i32) > (sbd - unstick) as i32)
         {
-            ny = sbd as i32 - cc.h as i32 - 2 * app.config.border_size as i32;
+            new_y = sbd as i32 - client.h as i32 - 2 * app.config.border_size as i32;
         }
 
         // Unstick from border
 
-        if cc.x != nx {
-            app.runtime.mouse_state.pos.0 = mx;
+        if client.x != new_x {
+            app.runtime.mouse_state.pos.0 = mouse_x;
         }
 
-        if cc.y != ny {
-            app.runtime.mouse_state.pos.1 = my;
+        if client.y != new_y {
+            app.runtime.mouse_state.pos.1 = mouse_y;
         }
 
-        cc.x = nx;
-        cc.y = ny;
+        client.x = new_x;
+        client.y = new_y;
 
-        if cc.x < 0 {
-            cc.x = 0;
+        if client.x < screen_x {
+            client.x = screen_x;
         }
-        if cc.y < 0 {
-            cc.y = 0;
+        if client.y < screen_y {
+            client.y = screen_y;
         }
-        if (cc.x + cc.w as i32) > sw {
-            cc.x = sw - cc.w as i32;
+        if (client.x + client.w as i32) > screen_x + screen_w {
+            client.x = screen_x + screen_w - client.w as i32;
         }
-        if (cc.y + cc.h as i32) > sh {
-            cc.y = sh - cc.h as i32;
+        if (client.y + client.h as i32) > screen_y + screen_h {
+            client.y = screen_y + screen_h - client.h as i32;
         }
 
         move_resize_window(
             app.core.display,
             moving_window,
-            cc.x + sx,
-            cc.y + sy,
-            cc.w,
-            cc.h,
+            client.x,
+            client.y,
+            client.w,
+            client.h,
         );
     }
 }
 
-pub fn resize_mouse(app: &mut Application, me: XMotionEvent) {
-    let (mx, my) = (me.x_root as i64, me.y_root as i64);
+pub fn resize_mouse(app: &mut Application, motion_event: XMotionEvent) {
+    let (mouse_x, mouse_y) = (motion_event.x_root as i64, motion_event.y_root as i64);
 
-    let (px, py) = app.runtime.mouse_state.pos;
-    let (dx, dy) = (mx - px, my - py);
-    app.runtime.mouse_state.pos = (mx, my);
+    let (pos_x, pos_y) = app.runtime.mouse_state.pos;
+    let (dx, dy) = (mouse_x - pos_x, mouse_y - pos_y);
+    app.runtime.mouse_state.pos = (mouse_x, mouse_y);
     let mw: u64 = app.runtime.mouse_state.win;
 
     if let Some((s, w, c)) = find_window_indexes(app, mw) {
-        let sox = (app.runtime.screens[s].x) as i32;
-        let soy = (app.runtime.screens[s].y) as i32;
-        let cc = &mut app.runtime.screens[s].workspaces[w].clients[c];
-        let mut nw = cc.w as i32;
-        let mut nh = cc.h as i32;
-        if (nw + dx as i32) > cc.minw {
-            if cc.maxw == 0 || cc.maxw > 0 && (nw + dx as i32) < cc.maxw {
+        let client = &mut app.runtime.screens[s].workspaces[w].clients[c];
+        let mut nw = client.w as i32;
+        let mut nh = client.h as i32;
+        if (nw + dx as i32) > client.minw {
+            if client.maxw == 0 || client.maxw > 0 && (nw + dx as i32) < client.maxw {
                 nw += dx as i32;
             }
         };
-        if (nh + dy as i32) > cc.minh {
-            if cc.maxh == 0 || cc.maxh > 0 && (nh + dy as i32) < cc.maxh {
+        if (nh + dy as i32) > client.minh {
+            if client.maxh == 0 || client.maxh > 0 && (nh + dy as i32) < client.maxh {
                 nh += dy as i32;
             }
         }
-        cc.w = nw as u32;
-        cc.h = nh as u32;
-        move_resize_window(app.core.display, mw, cc.x + sox, cc.y + soy, cc.w, cc.h);
+        client.w = nw as u32;
+        client.h = nh as u32;
+        move_resize_window(app.core.display, mw, client.x, client.y, client.w, client.h);
     }
 }
 

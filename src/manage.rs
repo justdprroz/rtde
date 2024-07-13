@@ -86,6 +86,8 @@ pub fn manage_client(app: &mut Application, win: u64) {
             .up as i32;
     c.visible = true;
 
+    println!("{:#?}", c);
+
     // 5. Properties
     let _reserved = get_transient_for_hint(app.core.display, win, &mut trans);
     let state = get_atom_prop(app, win, app.atoms.net_wm_state);
@@ -289,17 +291,44 @@ pub fn detach_dock(app: &mut Application, win: u64) {
 pub fn unmanage_window(app: &mut Application, win: u64) {
     // Find trackers for window
     if let Some((s, w, c)) = find_window_indexes(app, win) {
+        // Remove unmapped client
         log!("   |- Found window {} at indexes {}, {}, {}", win, s, w, c);
-        delete_property(app.core.display, win, app.atoms.net_wm_desktop);
+        // delete_property(app.core.display, win, app.atoms.net_wm_desktop);
         app.runtime.screens[s].workspaces[w].clients.remove(c);
         shift_current_client(app, Some(s), Some(w));
-        arrange_workspace(app, s, w);
-        if s == app.runtime.current_screen && w == app.runtime.current_workspace {
-            show_workspace(
-                app,
-                app.runtime.current_screen,
-                app.runtime.current_workspace,
+
+        unsafe {
+            println!("===== Grab server");
+            x11::xlib::XGrabServer(app.core.display);
+            println!("===== Select input");
+            x11::xlib::XSelectInput(app.core.display, win, x11::xlib::NoEventMask);
+            println!("===== Ungrab button");
+            x11::xlib::XUngrabButton(
+                app.core.display,
+                x11::xlib::AnyButton as u32,
+                x11::xlib::AnyModifier,
+                win,
             );
+            println!("===== Set state withdrawn");
+            let data: [i64; 2] = [0, 0];
+            change_property(
+                app.core.display,
+                win,
+                app.atoms.wm_state,
+                app.atoms.wm_state,
+                32,
+                PropModeReplace,
+                &data as *const [i64; 2] as *mut u8,
+                2,
+            );
+            println!("===== Ungrab server");
+            x11::xlib::XUngrabServer(app.core.display);
+        }
+
+        // Update layout
+        arrange_workspace(app, s, w);
+        if w == app.runtime.screens[s].current_workspace {
+            show_workspace(app, s, w);
         }
         update_client_list(app);
     } else {

@@ -65,7 +65,6 @@ fn main() {
     let mut app: Application = setup();
     if !Path::new("/tmp/rtwmrunning").exists() {
         for rule in app.config.autostart.clone() {
-            eprintln!("{:?}", rule);
             spawn(&mut app, &rule.cmd, rule.rule);
         }
     }
