@@ -128,6 +128,12 @@ pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
         app.runtime.screens[cs].workspaces[nw].clients.push(cc);
         // Arrange all monitors
         arrange_current(app);
+        show_workspace(app, cs, app.runtime.screens[cs].current_workspace);
+        show_workspace(
+            app,
+            app.runtime.current_screen,
+            app.runtime.screens[app.runtime.current_screen].current_workspace,
+        );
     }
 }
 

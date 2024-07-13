@@ -137,7 +137,6 @@ pub fn manage_client(app: &mut Application, win: u64) {
         // None => (app.runtime.current_screen, app.runtime.current_workspace),
         None => match get_client_pid(app, win) {
             Some(pid) => {
-                println!("{}", pid);
                 match app
                     .runtime
                     .autostart_rules
@@ -216,9 +215,7 @@ pub fn manage_client(app: &mut Application, win: u64) {
 
     // 15. Arrange current workspace
     arrange_workspace(app, client_screen, client_workspace);
-    if client_screen == app.runtime.current_screen
-        && client_workspace == app.runtime.current_workspace
-    {
+    if client_workspace == app.runtime.screens[client_screen].current_workspace {
         show_workspace(app, client_screen, client_workspace);
     } else {
         hide_workspace(app, client_screen, client_workspace);
