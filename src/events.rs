@@ -256,6 +256,9 @@ pub fn configure_request(app: &mut Application, conf_req_event: XConfigureReques
         conf_req_event.window
     );
     if let Some((s, w, c)) = find_window_indexes(app, conf_req_event.window) {
+        let sx = app.runtime.screens[s].x as i32;
+        let sy = app.runtime.screens[s].y as i32;
+
         let sw = app.runtime.screens[s].width as i32;
         let sh = app.runtime.screens[s].height as i32;
         let ba = app.runtime.screens[s].bar_offsets;
@@ -281,8 +284,8 @@ pub fn configure_request(app: &mut Application, conf_req_event: XConfigureReques
             }
 
             if resized {
-                client.x = (sw - (client.w as i32)) / 2;
-                client.y = (sh - (ba.up as i32) - (client.h as i32)) / 2;
+                client.x = (sw - (client.w as i32)) / 2 + sx;
+                client.y = (sh - (ba.up as i32) - (client.h as i32)) / 2 + sy;
 
                 move_resize_window(
                     app.core.display,

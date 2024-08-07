@@ -89,7 +89,6 @@ pub fn manage_client(app: &mut Application, win: u64) {
     println!("{:#?}", c);
 
     // 5. Properties
-    let _reserved = get_transient_for_hint(app.core.display, win, &mut trans);
     let state = get_atom_prop(app, win, app.atoms.net_wm_state);
     let wtype = get_atom_prop(app, win, app.atoms.net_wm_window_type);
 
@@ -128,34 +127,57 @@ pub fn manage_client(app: &mut Application, win: u64) {
     }
 
     // 10. Get window workspace
-    let (client_screen, client_workspace) = match get_client_workspace(app, win) {
-        Some(sw) => sw,
-        // None => (app.runtime.current_screen, app.runtime.current_workspace),
-        None => match get_client_pid(app, win) {
-            Some(pid) => {
-                match app
-                    .runtime
-                    .autostart_rules
-                    .iter()
-                    .position(|r| r.pid == pid)
-                {
-                    Some(ri) => {
-                        let rule = &app.runtime.autostart_rules[ri];
-                        eprintln!("{:?}", rule);
-                        if rule.screen < app.runtime.screens.len()
-                            && rule.workspace < app.runtime.screens[rule.screen].workspaces.len()
+    let (client_screen, client_workspace) =
+        if get_transient_for_hint(app.core.display, win, &mut trans) == 1
+            && find_window_indexes(app, trans).is_some()
+        {
+            println!("====== {}", trans);
+            match find_window_indexes(app, trans) {
+                Some((s, w, _c)) => (s, w),
+                None => (0, 0),
+            }
+        } else {
+            println!("NOT CHILD");
+            match get_client_workspace(app, win) {
+                Some(sw) => sw,
+                // None => (app.runtime.current_screen, app.runtime.current_workspace),
+                None => match get_client_pid(app, win) {
+                    Some(pid) => {
+                        match app
+                            .runtime
+                            .autostart_rules
+                            .iter()
+                            .position(|r| r.pid == pid)
                         {
-                            (rule.screen, rule.workspace)
-                        } else {
-                            (app.runtime.current_screen, app.runtime.current_workspace)
+                            Some(ri) => {
+                                let rule = &app.runtime.autostart_rules[ri];
+                                eprintln!("{:?}", rule);
+                                if rule.screen < app.runtime.screens.len()
+                                    && rule.workspace
+                                        < app.runtime.screens[rule.screen].workspaces.len()
+                                {
+                                    (rule.screen, rule.workspace)
+                                } else {
+                                    (app.runtime.current_screen, app.runtime.current_workspace)
+                                }
+                            }
+                            None => (app.runtime.current_screen, app.runtime.current_workspace),
                         }
                     }
                     None => (app.runtime.current_screen, app.runtime.current_workspace),
-                }
+                },
             }
-            None => (app.runtime.current_screen, app.runtime.current_workspace),
-        },
-    };
+        };
+
+    if c.floating {
+        let screen = &app.runtime.screens[client_screen];
+        if c.x > screen.width as i32 {
+            c.x = c.x % screen.x as i32;
+        }
+        if c.y > screen.height as i32 {
+            c.y = c.y % screen.y as i32;
+        }
+    }
 
     let workspace = &mut app.runtime.screens[client_screen].workspaces[client_workspace];
 

@@ -22,10 +22,10 @@ pub fn move_mouse(app: &mut Application, motion_event: XMotionEvent) {
         // Screen Bar Left/Up/Right/Down
         let (sbl, sbu, sbr, sbd) = {
             let screen = &app.runtime.screens[s];
-            let sbl = screen.x + screen.bar_offsets.left as i64;
-            let sbu = screen.y + screen.bar_offsets.up as i64;
-            let sbr = screen.x + screen.width - screen.bar_offsets.right as i64;
-            let sbd = screen.y + screen.height - screen.bar_offsets.down as i64;
+            let sbl = screen.bar_offsets.left as i64;
+            let sbu = screen.bar_offsets.up as i64;
+            let sbr = screen.width - screen.bar_offsets.right as i64;
+            let sbd = screen.height - screen.bar_offsets.down as i64;
             (sbl, sbu, sbr, sbd)
         };
 
@@ -45,7 +45,8 @@ pub fn move_mouse(app: &mut Application, motion_event: XMotionEvent) {
         }
         if (new_x + client.w as i32) > sbr as i32 - stick
             && (dx > 0 && (new_x + client.w as i32) < (sbr + unstick) as i32
-                || (new_x + client.w as i32) < sbr as i32 && (new_x + client.w as i32) > (sbr - unstick) as i32)
+                || (new_x + client.w as i32) < sbr as i32
+                    && (new_x + client.w as i32) > (sbr - unstick) as i32)
         {
             new_x = sbr as i32 - client.w as i32 - 2 * app.config.border_size as i32;
         }
@@ -58,7 +59,8 @@ pub fn move_mouse(app: &mut Application, motion_event: XMotionEvent) {
         }
         if (new_y + client.h as i32) > sbd as i32 - stick
             && (dy > 0 && (new_y + client.h as i32) < (sbd + unstick) as i32
-                || (new_y + client.h as i32) < sbd as i32 && (new_y + client.h as i32) > (sbd - unstick) as i32)
+                || (new_y + client.h as i32) < sbd as i32
+                    && (new_y + client.h as i32) > (sbd - unstick) as i32)
         {
             new_y = sbd as i32 - client.h as i32 - 2 * app.config.border_size as i32;
         }
@@ -76,24 +78,24 @@ pub fn move_mouse(app: &mut Application, motion_event: XMotionEvent) {
         client.x = new_x;
         client.y = new_y;
 
-        if client.x < screen_x {
-            client.x = screen_x;
+        if client.x < 0 {
+            client.x = 0;
         }
-        if client.y < screen_y {
-            client.y = screen_y;
+        if client.y < 0 {
+            client.y = 0;
         }
-        if (client.x + client.w as i32) > screen_x + screen_w {
-            client.x = screen_x + screen_w - client.w as i32;
+        if (client.x + client.w as i32) > screen_w {
+            client.x = screen_w - client.w as i32;
         }
-        if (client.y + client.h as i32) > screen_y + screen_h {
-            client.y = screen_y + screen_h - client.h as i32;
+        if (client.y + client.h as i32) > screen_h {
+            client.y = screen_h - client.h as i32;
         }
 
         move_resize_window(
             app.core.display,
             moving_window,
-            client.x,
-            client.y,
+            client.x + screen_x,
+            client.y + screen_y,
             client.w,
             client.h,
         );
@@ -109,7 +111,9 @@ pub fn resize_mouse(app: &mut Application, motion_event: XMotionEvent) {
     let mw: u64 = app.runtime.mouse_state.win;
 
     if let Some((s, w, c)) = find_window_indexes(app, mw) {
-        let client = &mut app.runtime.screens[s].workspaces[w].clients[c];
+        let screen = &mut app.runtime.screens[s];
+
+        let client = &mut screen.workspaces[w].clients[c];
         let mut nw = client.w as i32;
         let mut nh = client.h as i32;
         if (nw + dx as i32) > client.minw {
@@ -124,7 +128,14 @@ pub fn resize_mouse(app: &mut Application, motion_event: XMotionEvent) {
         }
         client.w = nw as u32;
         client.h = nh as u32;
-        move_resize_window(app.core.display, mw, client.x, client.y, client.w, client.h);
+        move_resize_window(
+            app.core.display,
+            mw,
+            client.x + screen.x as i32,
+            client.y + screen.y as i32,
+            client.w,
+            client.h,
+        );
     }
 }
 

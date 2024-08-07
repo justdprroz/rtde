@@ -253,10 +253,10 @@ pub fn show_workspace(app: &mut Application, screen: usize, workspace: usize) {
             move_resize_window(
                 app.core.display,
                 client.window_id,
-                // client.x + screen.x as i32,
-                // client.y + screen.y as i32,
-                client.x,
-                client.y,
+                client.x + screen.x as i32,
+                client.y + screen.y as i32,
+                // client.x,
+                // client.y,
                 client.w,
                 client.h,
             );
@@ -301,6 +301,7 @@ pub fn hide_workspace(app: &mut Application, screen: usize, workspace: usize) {
 /// 11. Update borders
 /// 12. Position windows
 pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize) {
+    log!("======ARRANGING S: {}, W: {}", screen, workspace);
     // 1. Get actual structures
     let screen = &mut app.runtime.screens[screen];
     let workspace = &mut screen.workspaces[workspace];
@@ -320,7 +321,7 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
         master_capacity = stack_size as i64;
         master_width = screen.width as u32 - gap as u32 * 2;
     }
-    log!("   |- Arranging {} window", stack_size);
+    log!("   |- Arranging {} tilable window", stack_size);
     // 5. Iterate all clients in current workspace and calculate geometry
     for (index, client) in workspace
         .clients
@@ -361,10 +362,9 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
             client.border = app.config.border_size as u32;
         }
 
-        client.x += screen.x as i32;
-        client.y += screen.y as i32;
+        // client.x += screen.x as i32;
+        // client.y += screen.y as i32;
     }
-
     return;
 }
 
