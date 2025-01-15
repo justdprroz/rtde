@@ -92,40 +92,6 @@ pub fn manage_client(app: &mut Application, win: u64) {
     let state = get_atom_prop(app, win, app.atoms.net_wm_state);
     let wtype = get_atom_prop(app, win, app.atoms.net_wm_window_type);
 
-    // 6. Update hints
-    update_normal_hints(app, &mut c);
-
-    // 7. Set flags
-    if state == app.atoms.net_wm_fullscreen {
-        c.floating = true;
-        c.fullscreen = true;
-    }
-    if wtype == app.atoms.net_wm_window_type_dialog {
-        c.floating = true;
-    }
-
-    if !c.floating {
-        c.floating = c.fixed || trans != 0;
-    }
-
-    c.border = if c.floating {
-        app.config.border_size as u32
-    } else {
-        0
-    };
-
-    // 8. Set input mask for events
-    select_input(
-        app.core.display,
-        win,
-        EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
-    );
-
-    // 9. Unfocus current windows
-    if let Some(cw) = get_current_client_id(app) {
-        unfocus(app, cw);
-    }
-
     // 10. Get window workspace
     let (client_screen, client_workspace) =
         if get_transient_for_hint(app.core.display, win, &mut trans) == 1
@@ -168,6 +134,39 @@ pub fn manage_client(app: &mut Application, win: u64) {
                 },
             }
         };
+    // 6. Update hints
+    update_normal_hints(app, &mut c);
+
+    // 7. Set flags
+    if state == app.atoms.net_wm_fullscreen {
+        c.floating = true;
+        c.fullscreen = true;
+    }
+    if wtype == app.atoms.net_wm_window_type_dialog {
+        c.floating = true;
+    }
+
+    if !c.floating {
+        c.floating = c.fixed || trans != 0;
+    }
+
+    c.border = if c.floating {
+        app.config.border_size as u32
+    } else {
+        0
+    };
+
+    // 8. Set input mask for events
+    select_input(
+        app.core.display,
+        win,
+        EnterWindowMask | FocusChangeMask | PropertyChangeMask | StructureNotifyMask,
+    );
+
+    // 9. Unfocus current windows
+    if let Some(cw) = get_current_client_id(app) {
+        unfocus(app, cw);
+    }
 
     if c.floating {
         let screen = &app.runtime.screens[client_screen];
