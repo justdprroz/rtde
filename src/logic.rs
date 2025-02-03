@@ -106,7 +106,7 @@ pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
         };
 
         // Pop client
-        let mut client = app.runtime.screens[app.runtime.current_screen].workspaces
+        let client = app.runtime.screens[app.runtime.current_screen].workspaces
             [app.runtime.current_workspace]
             .clients
             .remove(index);
@@ -304,16 +304,13 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
             &w as *const u64 as *mut u64 as *mut u8,
             1,
         );
+
         // Update current client
         app.runtime.current_client = app.runtime.screens[app.runtime.current_screen].workspaces
             [app.runtime.current_workspace]
             .current_client;
         if let Some(cw) = get_current_client_id(app) {
-            set_window_border(
-                app.core.display,
-                cw,
-                argb_to_int(app.config.active_border_color),
-            );
+            focus(app, cw);
         }
         // Show current client
         show_workspace(
@@ -321,15 +318,6 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
             app.runtime.current_screen,
             app.runtime.current_workspace,
         );
-        // Arrange update workspace
-        if let Some(index) = app.runtime.current_client {
-            let win = app.runtime.screens[app.runtime.current_screen].workspaces
-                [app.runtime.current_workspace]
-                .clients[index]
-                .window_id;
-            set_input_focus(app.core.display, win, RevertToPointerRoot, CurrentTime);
-        }
-        update_active_window(app);
     }
 }
 
@@ -412,6 +400,7 @@ pub fn get_client_name(app: &mut Application, win: u64) -> String {
 }
 
 pub fn focus(app: &mut Application, win: u64) {
+    set_urgent(app, win, false);
     set_window_border(
         app.core.display,
         win,

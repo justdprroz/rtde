@@ -9,6 +9,7 @@ use crate::structs::Color;
 use crate::structs::Configuration;
 use crate::structs::DesktopsConfig;
 use crate::structs::KeyAction;
+use crate::structs::PlacementRule;
 use crate::structs::ScreenSwitching;
 
 use x11::keysym::*;
@@ -24,7 +25,6 @@ pub fn config() -> Configuration {
     //                          Local Macro Definitions
     //-----------------------------------------------------------------------
     // Macro for creating autostart rules
-    #[macro_export]
     macro_rules! AUTOSTART {
         ($cmd:expr) => {
             AutostartRuleCMD {
@@ -40,7 +40,6 @@ pub fn config() -> Configuration {
         };
     }
     // Macro for creating array of strings used by nix's execvp function
-    #[macro_export]
     macro_rules! CMD {
         ( $( $e:expr ),* ) => {
             {
@@ -51,6 +50,34 @@ pub fn config() -> Configuration {
                 temp_vec
             }
         };
+    }
+
+    fn mk_placement<S: Into<String>>(
+        instance: Option<S>,
+        class: Option<S>,
+        title: Option<S>,
+        rule_screen: Option<usize>,
+        rule_workspace: Option<usize>,
+    ) -> PlacementRule {
+        PlacementRule {
+            instance: if let Some(s) = instance {
+                Some(s.into())
+            } else {
+                None
+            },
+            class: if let Some(s) = class {
+                Some(s.into())
+            } else {
+                None
+            },
+            title: (if let Some(s) = title {
+                Some(s.into())
+            } else {
+                None
+            }),
+            rule_screen,
+            rule_workspace,
+        }
     }
 
     //-----------------------------------------------------------------------
@@ -71,6 +98,13 @@ pub fn config() -> Configuration {
         red: 126,
         green: 36,
         blue: 135,
+    };
+    let urgent_border_color = Color {
+        //#A54242
+        alpha: 255,
+        red: 186,
+        green: 28,
+        blue: 28,
     };
 
     //-----------------------------------------------------------------------
@@ -242,6 +276,22 @@ pub fn config() -> Configuration {
     ];
 
     //-----------------------------------------------------------------------
+    //                       Permanent rules setup
+    //-----------------------------------------------------------------------
+
+    // xprop(1):
+    //  WM_CLASS(STRING) = instance, class
+    //  WM_NAME(STRING) = title
+    // mk_placement(instance, class, title, rule_screen, rule_workspace)
+
+    let placements: Vec<PlacementRule> = vec![
+        // mk_placement(None, Some("zen"), None, Some(0), Some(1)),
+        // mk_placement(None, Some("Thunar"), None, Some(0), Some(2)),
+        mk_placement(None, Some("pavucontrol"), None, Some(0), Some(9)),
+        mk_placement(None, Some("Arandr"), None, Some(0), Some(9)),
+    ];
+
+    //-----------------------------------------------------------------------
     //                      Create config & return
     //-----------------------------------------------------------------------
     return Configuration {
@@ -250,7 +300,9 @@ pub fn config() -> Configuration {
         border_size,
         normal_border_color,
         active_border_color,
+        urgent_border_color,
         desktops,
         autostart,
+        placements,
     };
 }

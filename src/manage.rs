@@ -72,7 +72,6 @@ pub fn manage_client(app: &mut Application, win: u64, scan: bool) {
 
     // 4. Create client
     let mut c: Client = Client::default();
-    let mut trans = 0;
     c.window_id = win;
     c.w = wa.width as u32;
     c.h = wa.height as u32;
@@ -95,46 +94,8 @@ pub fn manage_client(app: &mut Application, win: u64, scan: bool) {
     let wtype = get_atom_prop(app, win, app.atoms.net_wm_window_type);
 
     // 10. Get window workspace
-    let (client_screen, client_workspace) =
-        if get_transient_for_hint(app.core.display, win, &mut trans) == 1
-            && find_window_indexes(app, trans).is_some()
-        {
-            println!("====== {}", trans);
-            match find_window_indexes(app, trans) {
-                Some((s, w, _c)) => (s, w),
-                None => (0, 0),
-            }
-        } else {
-            println!("NOT CHILD {}", trans);
-            match get_client_workspace(app, win) {
-                Some(sw) if scan => sw,
-                _ => match get_client_pid(app, win) {
-                    Some(pid) => {
-                        match app
-                            .runtime
-                            .autostart_rules
-                            .iter()
-                            .position(|r| r.pid == pid)
-                        {
-                            Some(ri) => {
-                                let rule = &app.runtime.autostart_rules[ri];
-                                eprintln!("{:?}", rule);
-                                if rule.screen < app.runtime.screens.len()
-                                    && rule.workspace
-                                        < app.runtime.screens[rule.screen].workspaces.len()
-                                {
-                                    (rule.screen, rule.workspace)
-                                } else {
-                                    (app.runtime.current_screen, app.runtime.current_workspace)
-                                }
-                            }
-                            None => (app.runtime.current_screen, app.runtime.current_workspace),
-                        }
-                    }
-                    None => (app.runtime.current_screen, app.runtime.current_workspace),
-                },
-            }
-        };
+    let ((client_screen, client_workspace), trans) = get_window_placement(app, win, scan);
+
     // 6. Update hints
     update_normal_hints(app, &mut c);
 
@@ -230,6 +191,7 @@ pub fn manage_client(app: &mut Application, win: u64, scan: bool) {
         show_workspace(app, client_screen, client_workspace);
     } else {
         hide_workspace(app, client_screen, client_workspace);
+        set_urgent(app, win, true);
     }
     // 16. Tag window as mapped
     map_window(app.core.display, win);
@@ -320,11 +282,8 @@ pub fn unmanage_window(app: &mut Application, win: u64) {
         shift_current_client(app, Some(s), Some(w));
 
         unsafe {
-            println!("===== Grab server");
             x11::xlib::XGrabServer(app.core.display);
-            println!("===== Select input");
             x11::xlib::XSelectInput(app.core.display, win, x11::xlib::NoEventMask);
-            println!("===== Ungrab button");
             x11::xlib::XUngrabButton(
                 app.core.display,
                 x11::xlib::AnyButton as u32,
