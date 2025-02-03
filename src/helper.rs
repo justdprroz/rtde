@@ -16,6 +16,7 @@ use x11::xlib::PMaxSize;
 use x11::xlib::PMinSize;
 use x11::xlib::PropModeAppend;
 use x11::xlib::RevertToPointerRoot;
+use x11::xlib::StructureNotifyMask;
 use x11::xlib::Success;
 use x11::xlib::XGetWindowProperty;
 use x11::xlib::XA_ATOM;
@@ -327,7 +328,7 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
         .clients
         .iter_mut()
         .rev()
-        .filter(|c| !c.floating)
+        .filter(|c| !c.floating && !c.fullscreen)
         .enumerate()
     {
         // 6. Show maximized clients
@@ -514,5 +515,30 @@ pub fn update_desktop_ewmh_info(
         PropModeReplace,
         viewports.as_mut_ptr() as *mut u8,
         viewports.len() as i32,
+    );
+}
+
+pub fn configure(dpy: &mut x11::xlib::Display, client: &mut Client) {
+    let ce = x11::xlib::XConfigureEvent {
+        type_: x11::xlib::ConfigureNotify,
+        display: dpy,
+        event: client.window_id,
+        window: client.window_id,
+        x: client.x,
+        y: client.y,
+        width: client.w as i32,
+        height: client.h as i32,
+        border_width: client.border as i32,
+        above: 0,
+        override_redirect: 0,
+        serial: 0,
+        send_event: 0,
+    };
+    send_event(
+        dpy,
+        client.window_id,
+        false,
+        StructureNotifyMask,
+        EEvent::ConfigureNotify { configure: ce },
     );
 }

@@ -303,7 +303,7 @@ pub fn scan(app: &mut Application) {
             // Manage
             if wa.map_state == IsViewable {
                 log!("      |- Window is viewable. Managing");
-                manage_client(app, win);
+                manage_client(app, win, true);
                 continue;
             }
         }

@@ -40,7 +40,7 @@ use crate::wrapper::xlib::*;
 /// 14. Configure window
 /// 15. Arrange clients
 /// 16. Map window
-pub fn manage_client(app: &mut Application, win: u64) {
+pub fn manage_client(app: &mut Application, win: u64, scan: bool) {
     // 1. Get attributes
     let wa;
     if let Some(a) = get_window_attributes(app.core.display, win) {
@@ -76,6 +76,8 @@ pub fn manage_client(app: &mut Application, win: u64) {
     c.window_id = win;
     c.w = wa.width as u32;
     c.h = wa.height as u32;
+    c.ow = c.w;
+    c.oh = c.h;
     c.x = wa.x
         + app.runtime.screens[app.runtime.current_screen]
             .bar_offsets
@@ -103,11 +105,10 @@ pub fn manage_client(app: &mut Application, win: u64) {
                 None => (0, 0),
             }
         } else {
-            println!("NOT CHILD");
+            println!("NOT CHILD {}", trans);
             match get_client_workspace(app, win) {
-                Some(sw) => sw,
-                // None => (app.runtime.current_screen, app.runtime.current_workspace),
-                None => match get_client_pid(app, win) {
+                Some(sw) if scan => sw,
+                _ => match get_client_pid(app, win) {
                     Some(pid) => {
                         match app
                             .runtime

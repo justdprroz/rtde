@@ -82,7 +82,7 @@ pub fn key_press(app: &mut Application, key_event: XKeyEvent) {
 pub fn map_request(app: &mut Application, map_request: XMapRequestEvent) {
     let ew: u64 = map_request.window;
     log!("|- Map Request From Window: {ew}");
-    manage_client(app, ew);
+    manage_client(app, ew, false);
 }
 
 pub fn enter_notify(app: &mut Application, crossing_event: XCrossingEvent) {
@@ -191,7 +191,8 @@ pub fn configure_notify(app: &mut Application, configure_event: XConfigureEvent)
 pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) {
     log!("|- Got `Client Message`");
     if let Some(cc) = find_window_indexes(app, client_event.window) {
-        let cc = &mut app.runtime.screens[cc.0].workspaces[cc.1].clients[cc.2];
+        let cs = &mut app.runtime.screens[cc.0];
+        let cc = &mut cs.workspaces[cc.1].clients[cc.2];
         log!(
             "   |- Of type `{}` From: `{}`",
             get_atom_name(app.core.display, client_event.message_type),
@@ -214,6 +215,10 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
                         &mut app.atoms.net_wm_fullscreen as *mut u64 as *mut u8,
                         1,
                     );
+                    cc.ow = cc.w;
+                    cc.oh = cc.h;
+                    cc.w = cs.width as u32;
+                    cc.h = cs.height as u32;
                     cc.fullscreen = true;
                 } else if !sf && cc.fullscreen {
                     change_property(
@@ -226,6 +231,8 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
                         std::ptr::null_mut::<u8>(),
                         0,
                     );
+                    cc.w = cc.ow;
+                    cc.h = cc.oh;
                     cc.fullscreen = false;
                 }
                 arrange_current(app);
@@ -256,6 +263,7 @@ pub fn configure_request(app: &mut Application, conf_req_event: XConfigureReques
         conf_req_event.window
     );
     if let Some((s, w, c)) = find_window_indexes(app, conf_req_event.window) {
+        log!("  |- Window found!");
         let sx = app.runtime.screens[s].x as i32;
         let sy = app.runtime.screens[s].y as i32;
 
@@ -296,8 +304,14 @@ pub fn configure_request(app: &mut Application, conf_req_event: XConfigureReques
                     client.h,
                 );
             }
+        } else {
+            configure(
+                app.core.display,
+                &mut app.runtime.screens[s].workspaces[w].clients[c],
+            );
         }
     } else {
+        log!("  |- No windows found");
         let mut wc = XWindowChanges {
             x: conf_req_event.x,
             y: conf_req_event.y,
