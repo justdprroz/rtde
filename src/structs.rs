@@ -17,14 +17,25 @@ pub struct Configuration {
     pub border_size: usize,
     pub normal_border_color: Color,
     pub active_border_color: Color,
+    pub urgent_border_color: Color,
     pub desktops: DesktopsConfig,
     pub autostart: Vec<AutostartRuleCMD>,
+    pub placements: Vec<PlacementRule>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AutostartRuleCMD {
     pub cmd: Vec<CString>,
     pub rule: Option<(usize, usize)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlacementRule {
+    pub instance: Option<String>,
+    pub class: Option<String>,
+    pub title: Option<String>,
+    pub rule_screen: Option<usize>,
+    pub rule_workspace: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -90,6 +101,7 @@ pub struct Atoms {
     pub net_supported: u64,
     pub net_wm_name: u64,
     pub net_wm_state: u64,
+    pub net_wm_state_demands_attention: u64,
     pub net_wm_check: u64,
     pub net_wm_fullscreen: u64,
     pub net_wm_window_type: u64,
@@ -171,12 +183,15 @@ pub struct Client {
     pub y: i32,
     pub w: u32,
     pub h: u32,
+    pub ow: u32,
+    pub oh: u32,
     pub border: u32,
     // Flags
     pub visible: bool,
     pub floating: bool,
     pub fullscreen: bool,
     pub fixed: bool,
+    pub urgent: bool,
     // Restrictions
     pub minw: i32,
     pub minh: i32,

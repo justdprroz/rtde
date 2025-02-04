@@ -16,7 +16,9 @@ use x11::xlib::PMaxSize;
 use x11::xlib::PMinSize;
 use x11::xlib::PropModeAppend;
 use x11::xlib::RevertToPointerRoot;
+use x11::xlib::StructureNotifyMask;
 use x11::xlib::Success;
+use x11::xlib::XClassHint;
 use x11::xlib::XGetWindowProperty;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_WINDOW;
@@ -327,7 +329,7 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
         .clients
         .iter_mut()
         .rev()
-        .filter(|c| !c.floating)
+        .filter(|c| !c.floating && !c.fullscreen)
         .enumerate()
     {
         // 6. Show maximized clients
@@ -515,4 +517,173 @@ pub fn update_desktop_ewmh_info(
         viewports.as_mut_ptr() as *mut u8,
         viewports.len() as i32,
     );
+}
+
+pub fn configure(dpy: &mut x11::xlib::Display, client: &mut Client) {
+    let ce = x11::xlib::XConfigureEvent {
+        type_: x11::xlib::ConfigureNotify,
+        display: dpy,
+        event: client.window_id,
+        window: client.window_id,
+        x: client.x,
+        y: client.y,
+        width: client.w as i32,
+        height: client.h as i32,
+        border_width: client.border as i32,
+        above: 0,
+        override_redirect: 0,
+        serial: 0,
+        send_event: 0,
+    };
+    send_event(
+        dpy,
+        client.window_id,
+        false,
+        StructureNotifyMask,
+        EEvent::ConfigureNotify { configure: ce },
+    );
+}
+
+pub fn get_window_placement(app: &mut Application, win: u64, scan: bool) -> ((usize, usize), u64) {
+    let default_placement = (app.runtime.current_screen, app.runtime.current_workspace);
+
+    let mut trans = 0;
+
+    // Try to inherit parents' position
+    if get_transient_for_hint(app.core.display, win, &mut trans) == 1
+        && find_window_indexes(app, trans).is_some()
+    {
+        return (
+            if let Some((s, w, _c)) = find_window_indexes(app, trans) {
+                (s, w)
+            } else {
+                default_placement
+            },
+            trans,
+        );
+    }
+
+    // Try to use previous position on startup
+    if scan {
+        if let Some(sw) = get_client_workspace(app, win) {
+            return (sw, 0);
+        };
+    }
+
+    // Try loading from autostart rules
+    if let Some(pid) = get_client_pid(app, win) {
+        if let Some(ri) = app
+            .runtime
+            .autostart_rules
+            .iter()
+            .position(|r| r.pid == pid)
+        {
+            let rule = &app.runtime.autostart_rules[ri];
+            eprintln!("{:?}", rule);
+            if rule.screen < app.runtime.screens.len()
+                && rule.workspace < app.runtime.screens[rule.screen].workspaces.len()
+            {
+                return ((rule.screen, rule.workspace), 0);
+            }
+        };
+    }
+
+    // Try permanent rules
+    let title = match get_text_property(app.core.display, win, app.atoms.net_wm_name) {
+        Some(name) => Some(name),
+        None => None,
+    };
+
+    let (instance, class) = unsafe {
+        let mut ch: XClassHint = XClassHint {
+            res_name: std::ptr::null_mut(),
+            res_class: std::ptr::null_mut(),
+        };
+        x11::xlib::XGetClassHint(app.core.display, win, &mut ch as *mut XClassHint);
+
+        let instance = if ch.res_name != std::ptr::null_mut() {
+            match std::ffi::CStr::from_ptr(ch.res_name as *const i8).to_string_lossy() {
+                std::borrow::Cow::Borrowed(s) => Some(s.to_string()),
+                std::borrow::Cow::Owned(s) => Some(s),
+            }
+        } else {
+            None
+        };
+
+        let class = if ch.res_class != std::ptr::null_mut() {
+            match std::ffi::CStr::from_ptr(ch.res_class as *const i8).to_string_lossy() {
+                std::borrow::Cow::Borrowed(s) => Some(s.to_string()),
+                std::borrow::Cow::Owned(s) => Some(s),
+            }
+        } else {
+            None
+        };
+
+        (instance, class)
+    };
+
+    for rule in &app.config.placements {
+        let instance_flag = {
+            if let (Some(rule_instance), Some(client_instance)) = (&rule.instance, &instance) {
+                *rule_instance == *client_instance
+            } else {
+                rule.instance.is_none()
+            }
+        };
+        let class_flag = {
+            if let (Some(rule_class), Some(client_class)) = (&rule.class, &class) {
+                *rule_class == *client_class
+            } else {
+                rule.class.is_none()
+            }
+        };
+        let title_flag = {
+            if let (Some(rule_title), Some(client_title)) = (&rule.title, &title) {
+                *rule_title == *client_title
+            } else {
+                rule.title.is_none()
+            }
+        };
+        if instance_flag && class_flag && title_flag {
+            let s = if let Some(s) = rule.rule_screen {
+                s
+            } else {
+                app.runtime.current_screen
+            };
+            let w = if let Some(w) = rule.rule_workspace {
+                w
+            } else {
+                app.runtime.current_workspace
+            };
+            return ((s, w), 0);
+        }
+    }
+
+    // Use current placement if nothing found;
+    return (default_placement, 0);
+}
+
+pub fn set_urgent(app: &mut Application, win: u64, urg: bool) {
+    unsafe {
+        let wmh = x11::xlib::XGetWMHints(app.core.display, win);
+        if wmh != std::ptr::null_mut() {
+            if urg {
+                (*wmh).flags = (*wmh).flags | x11::xlib::XUrgencyHint;
+                set_window_border(
+                    app.core.display,
+                    win,
+                    argb_to_int(app.config.urgent_border_color),
+                );
+            } else {
+                (*wmh).flags = (*wmh).flags & !x11::xlib::XUrgencyHint;
+                set_window_border(
+                    app.core.display,
+                    win,
+                    argb_to_int(app.config.active_border_color),
+                );
+            }
+            x11::xlib::XSetWMHints(app.core.display, win, wmh);
+            x11::xlib::XFree(wmh as *mut libc::c_void);
+        }
+    };
 }
