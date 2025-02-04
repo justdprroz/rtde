@@ -335,8 +335,13 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
 
 pub fn update_master_width(app: &mut Application, w: f64) {
     // Update master width
-    app.runtime.screens[app.runtime.current_screen].workspaces[app.runtime.current_workspace]
-        .master_width += w;
+
+    let mw = &mut app.runtime.screens[app.runtime.current_screen].workspaces
+        [app.runtime.current_workspace]
+        .master_width;
+    if f64::abs(w) < *mw + w && *mw + w < 1.0 {
+        *mw += w;
+    }
     // Rearrange windows
     arrange_current(app);
     show_workspace(
