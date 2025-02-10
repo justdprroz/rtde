@@ -93,7 +93,7 @@ pub mod xlib {
                 }
                 None => x11::xlib::XOpenDisplay(std::ptr::null::<i8>()),
             };
-            return result.as_mut();
+            result.as_mut()
         }
     }
 
@@ -779,6 +779,52 @@ pub mod xlib {
 
             x11::xlib::XFree(tr.value as *mut libc::c_void);
             name
+        }
+    }
+
+    pub fn get_window_property(
+        dpy: &mut x11::xlib::Display,
+        win: u64,
+        property: x11::xlib::Atom,
+        long_offset: i64,
+        long_length: i64,
+        delete: bool,
+        req_type: x11::xlib::Atom,
+        actual_return_type: &mut x11::xlib::Atom,
+        actual_format_return: &mut i32,
+        nitemns_return: &mut u64,
+        bytes_after_return: &mut u64,
+        prop_return: &mut *mut u8,
+    ) -> i32 {
+        unsafe {
+            x11::xlib::XGetWindowProperty(
+                dpy,
+                win,
+                property,
+                long_offset,
+                long_length,
+                delete as i32,
+                req_type,
+                actual_return_type,
+                actual_format_return,
+                nitemns_return,
+                bytes_after_return,
+                prop_return as *mut *mut u8,
+            )
+        }
+    }
+
+    pub fn get_class_hint(
+        dpy: &mut x11::xlib::Display,
+        win: u64,
+        class_hint_return: &mut x11::xlib::XClassHint,
+    ) -> i32 {
+        unsafe {
+            x11::xlib::XGetClassHint(
+                dpy as *mut x11::xlib::Display,
+                win,
+                class_hint_return as *mut x11::xlib::XClassHint,
+            )
         }
     }
 }

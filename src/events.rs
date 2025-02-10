@@ -190,9 +190,11 @@ pub fn configure_notify(app: &mut Application, configure_event: XConfigureEvent)
 
 pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) {
     log!("|- Got `Client Message`");
-    if let Some(cc) = find_window_indexes(app, client_event.window) {
-        let cs = &mut app.runtime.screens[cc.0];
-        let cc = &mut cs.workspaces[cc.1].clients[cc.2];
+    if let Some((client_screen_index, client_workspace_index, client_index)) =
+        find_window_indexes(app, client_event.window)
+    {
+        let client_screen = &mut app.runtime.screens[client_screen_index];
+        let cc = &mut client_screen.workspaces[client_workspace_index].clients[client_index];
         log!(
             "   |- Of type `{}` From: `{}`",
             get_atom_name(app.core.display, client_event.message_type),
@@ -217,8 +219,8 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
                     );
                     cc.ow = cc.w;
                     cc.oh = cc.h;
-                    cc.w = cs.width as u32;
-                    cc.h = cs.height as u32;
+                    cc.w = client_screen.width as u32;
+                    cc.h = client_screen.height as u32;
                     cc.fullscreen = true;
                 } else if !sf && cc.fullscreen {
                     change_property(
@@ -244,15 +246,21 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
             } else {
                 log!("      |- Unsupported `state`");
             }
+        } else if client_event.message_type == app.atoms.net_active_window {
+            log!("=== GOT URGENCY TRIGGER");
+            if client_workspace_index != client_screen.current_workspace && !cc.urgent {
+                log!("=== SET URGENCY FLAG");
+                let win = cc.window_id;
+                set_urgent(app, win, true);
+            }
         }
+    } else if client_event.message_type == app.atoms.net_current_desktop {
+        focus_on_workspace(app, client_event.data.get_long(0) as u64, false);
     } else {
         log!(
             "   |- Of type `{}`",
             get_atom_name(app.core.display, client_event.message_type)
         );
-        if client_event.message_type == app.atoms.net_current_desktop {
-            focus_on_workspace(app, client_event.data.get_long(0) as u64, false);
-        }
     }
 }
 

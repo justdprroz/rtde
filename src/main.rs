@@ -68,10 +68,6 @@ fn main() {
             spawn(&mut app, &rule.cmd, rule.rule);
         }
     }
-    // spawn(
-    //     &mut app,
-    //     format!("{}/.rtde/autostart.sh", std::env!("HOME")),
-    // );
     setup::scan(&mut app);
     run(&mut app);
 }
