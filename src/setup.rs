@@ -262,6 +262,7 @@ pub fn init_supported_atoms(app: &mut Application) {
         app.atoms.net_current_desktop,
         app.atoms.net_desktop_viewport,
         app.atoms.net_desktop_names,
+        app.atoms.net_wm_state_demands_attention,
     ];
 
     change_property(

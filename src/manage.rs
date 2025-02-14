@@ -130,14 +130,22 @@ pub fn manage_client(app: &mut Application, win: u64, scan: bool) {
         unfocus(app, cw);
     }
 
+    let screen = &app.runtime.screens[client_screen];
     if c.floating {
-        let screen = &app.runtime.screens[client_screen];
         if c.x > screen.width as i32 {
             c.x = c.x % screen.x as i32;
         }
         if c.y > screen.height as i32 {
             c.y = c.y % screen.y as i32;
         }
+    }
+
+    if c.x < screen.x as i32 {
+        c.x = screen.x as i32;
+    }
+
+    if c.y < screen.y as i32 {
+        c.y = screen.y as i32;
     }
 
     let workspace = &mut app.runtime.screens[client_screen].workspaces[client_workspace];
@@ -193,6 +201,7 @@ pub fn manage_client(app: &mut Application, win: u64, scan: bool) {
         hide_workspace(app, client_screen, client_workspace);
         set_urgent(app, win, true);
     }
+
     // 16. Tag window as mapped
     map_window(app.core.display, win);
 
@@ -281,30 +290,28 @@ pub fn unmanage_window(app: &mut Application, win: u64) {
         app.runtime.screens[s].workspaces[w].clients.remove(c);
         shift_current_client(app, Some(s), Some(w));
 
-        unsafe {
-            x11::xlib::XGrabServer(app.core.display);
-            x11::xlib::XSelectInput(app.core.display, win, x11::xlib::NoEventMask);
-            x11::xlib::XUngrabButton(
-                app.core.display,
-                x11::xlib::AnyButton as u32,
-                x11::xlib::AnyModifier,
-                win,
-            );
-            println!("===== Set state withdrawn");
-            let data: [i64; 2] = [0, 0];
-            change_property(
-                app.core.display,
-                win,
-                app.atoms.wm_state,
-                app.atoms.wm_state,
-                32,
-                PropModeReplace,
-                &data as *const [i64; 2] as *mut u8,
-                2,
-            );
-            println!("===== Ungrab server");
-            x11::xlib::XUngrabServer(app.core.display);
-        }
+        grab_server(app.core.display);
+        select_input(app.core.display, win, x11::xlib::NoEventMask);
+        ungrab_button(
+            app.core.display,
+            x11::xlib::AnyButton as u32,
+            x11::xlib::AnyModifier,
+            win,
+        );
+        println!("===== Set state withdrawn");
+        let data: [i64; 2] = [0, 0];
+        change_property(
+            app.core.display,
+            win,
+            app.atoms.wm_state,
+            app.atoms.wm_state,
+            32,
+            PropModeReplace,
+            &data as *const [i64; 2] as *mut u8,
+            2,
+        );
+        println!("===== Ungrab server");
+        ungrab_server(app.core.display);
 
         // Update layout
         arrange_workspace(app, s, w);

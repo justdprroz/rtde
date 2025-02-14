@@ -1,6 +1,9 @@
 //! Functions ran for events
 
+use std::borrow::Borrow;
+
 use x11::xlib::Button3;
+use x11::xlib::CWBorderWidth;
 use x11::xlib::CWHeight;
 use x11::xlib::CWWidth;
 use x11::xlib::CurrentTime;
@@ -16,6 +19,7 @@ use x11::xlib::XKeyEvent;
 use x11::xlib::XMapRequestEvent;
 use x11::xlib::XMotionEvent;
 use x11::xlib::XPropertyEvent;
+use x11::xlib::XSync;
 use x11::xlib::XUnmapEvent;
 use x11::xlib::XWindowChanges;
 use x11::xlib::CWX;
@@ -190,9 +194,11 @@ pub fn configure_notify(app: &mut Application, configure_event: XConfigureEvent)
 
 pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) {
     log!("|- Got `Client Message`");
-    if let Some(cc) = find_window_indexes(app, client_event.window) {
-        let cs = &mut app.runtime.screens[cc.0];
-        let cc = &mut cs.workspaces[cc.1].clients[cc.2];
+    if let Some((client_screen_index, client_workspace_index, client_index)) =
+        find_window_indexes(app, client_event.window)
+    {
+        let client_screen = &mut app.runtime.screens[client_screen_index];
+        let cc = &mut client_screen.workspaces[client_workspace_index].clients[client_index];
         log!(
             "   |- Of type `{}` From: `{}`",
             get_atom_name(app.core.display, client_event.message_type),
@@ -217,8 +223,8 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
                     );
                     cc.ow = cc.w;
                     cc.oh = cc.h;
-                    cc.w = cs.width as u32;
-                    cc.h = cs.height as u32;
+                    cc.w = client_screen.width as u32;
+                    cc.h = client_screen.height as u32;
                     cc.fullscreen = true;
                 } else if !sf && cc.fullscreen {
                     change_property(
@@ -244,23 +250,30 @@ pub fn client_message(app: &mut Application, client_event: XClientMessageEvent) 
             } else {
                 log!("      |- Unsupported `state`");
             }
+        } else if client_event.message_type == app.atoms.net_active_window {
+            log!("=== GOT URGENCY TRIGGER");
+            if client_workspace_index != client_screen.current_workspace && !cc.urgent {
+                log!("=== SET URGENCY FLAG");
+                let win = cc.window_id;
+                set_urgent(app, win, true);
+            }
         }
+    } else if client_event.message_type == app.atoms.net_current_desktop {
+        focus_on_workspace(app, client_event.data.get_long(0) as u64, false);
     } else {
         log!(
             "   |- Of type `{}`",
             get_atom_name(app.core.display, client_event.message_type)
         );
-        if client_event.message_type == app.atoms.net_current_desktop {
-            focus_on_workspace(app, client_event.data.get_long(0) as u64, false);
-        }
     }
 }
 
 pub fn configure_request(app: &mut Application, conf_req_event: XConfigureRequestEvent) {
     log!(
-        "|- Got `ConfigureRequest` for `{}` ({})",
+        "|- Got `ConfigureRequest` for `{}` ({}): {:#?}",
         get_client_name(app, conf_req_event.window),
-        conf_req_event.window
+        conf_req_event.window,
+        conf_req_event
     );
     if let Some((s, w, c)) = find_window_indexes(app, conf_req_event.window) {
         log!("  |- Window found!");
@@ -271,30 +284,64 @@ pub fn configure_request(app: &mut Application, conf_req_event: XConfigureReques
         let sh = app.runtime.screens[s].height as i32;
         let ba = app.runtime.screens[s].bar_offsets;
         let client = &mut app.runtime.screens[s].workspaces[w].clients[c];
-        let mut resized = false;
+        // let mut resized = false;
 
-        if client.floating {
+        if (conf_req_event.value_mask & CWBorderWidth as u64) != 0 {
+            client.border = conf_req_event.border_width as u32;
+        } else if client.floating {
             if (conf_req_event.value_mask & CWWidth as u64) != 0 {
+                log!("CWWidth");
+                client.ow = client.w;
                 client.w = conf_req_event.width as u32;
-                resized = true;
+                // resized = true;
             }
             if (conf_req_event.value_mask & CWHeight as u64) != 0 {
+                log!("CWHeight");
+                client.oh = client.h;
                 client.h = conf_req_event.height as u32;
-                resized = true;
+                // resized = true;
             }
             if (conf_req_event.value_mask & CWX as u64) != 0 {
-                client.x = conf_req_event.x;
-                resized = true;
+                log!("CWX");
+                client.ox = client.x;
+                client.x = sx + conf_req_event.x;
+                // resized = true;
             }
             if (conf_req_event.value_mask & CWY as u64) != 0 {
-                client.y = conf_req_event.y;
-                resized = true;
+                log!("CWY");
+                client.oy = client.y;
+                client.y = sy + conf_req_event.y;
+                // resized = true;
+            }
+            log!("Configuring window '{}'", conf_req_event.window);
+            log!(
+                "cx {}, cy {}, cw {}, ch {}",
+                client.x,
+                client.y,
+                client.w,
+                client.h
+            );
+            log!("sx {sx}, sy {sy}, sw {sw}, sh {sh}");
+
+            if (client.x + client.w as i32) > sx + sw && client.floating {
+                // log!("cx {}, cw {}, sx {}, sw {}", client.x, client.y, sx, sw);
+                client.x = sx + (sw / 2 - client.w as i32 / 2);
+            }
+            if (client.y + client.h as i32) > sy + sh && client.floating {
+                client.y = sy + (sh / 2 - client.h as i32 / 2);
             }
 
-            if resized {
-                client.x = (sw - (client.w as i32)) / 2 + sx;
-                client.y = (sh - (ba.up as i32) - (client.h as i32)) / 2 + sy;
+            // if resized {
 
+            // client.y = (sh - (ba.up as i32) - (client.h as i32)) / 2 + sy;
+
+            if (conf_req_event.value_mask & (CWX | CWY) as u64) != 0
+                && !((conf_req_event.value_mask & (CWWidth | CWHeight) as u64) != 0)
+            {
+                configure(app.core.display, client);
+            }
+
+            if client.visible {
                 move_resize_window(
                     app.core.display,
                     client.window_id,
@@ -304,11 +351,9 @@ pub fn configure_request(app: &mut Application, conf_req_event: XConfigureReques
                     client.h,
                 );
             }
+            // }
         } else {
-            configure(
-                app.core.display,
-                &mut app.runtime.screens[s].workspaces[w].clients[c],
-            );
+            configure(app.core.display, client);
         }
     } else {
         log!("  |- No windows found");
@@ -327,6 +372,9 @@ pub fn configure_request(app: &mut Application, conf_req_event: XConfigureReques
             conf_req_event.value_mask as u32,
             &mut wc,
         );
+    }
+    unsafe {
+        XSync(app.core.display, 0);
     }
 }
 

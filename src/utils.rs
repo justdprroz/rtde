@@ -21,6 +21,19 @@ pub fn vec_string_to_bytes(strings: Vec<String>) -> Vec<u8> {
     bytes
 }
 
+/// Get Rust string from raw C string pointer
+pub fn cstr_to_string(ptr: *const i8) -> Option<String> {
+    if ptr == std::ptr::null_mut() {
+        return None;
+    }
+    unsafe {
+        match std::ffi::CStr::from_ptr(ptr).to_string_lossy() {
+            std::borrow::Cow::Borrowed(s) => Some(s.to_string()),
+            std::borrow::Cow::Owned(s) => Some(s),
+        }
+    }
+}
+
 /// Log if in debug
 #[macro_export]
 macro_rules! log {

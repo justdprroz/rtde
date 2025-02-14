@@ -4,6 +4,7 @@ use std::ffi::CStr;
 use std::mem::size_of;
 use std::ptr::null_mut;
 
+use crate::config;
 use crate::structs::*;
 use crate::utils::*;
 use crate::wrapper::xlib::*;
@@ -19,6 +20,7 @@ use x11::xlib::RevertToPointerRoot;
 use x11::xlib::StructureNotifyMask;
 use x11::xlib::Success;
 use x11::xlib::XClassHint;
+use x11::xlib::XFlush;
 use x11::xlib::XGetWindowProperty;
 use x11::xlib::XA_ATOM;
 use x11::xlib::XA_WINDOW;
@@ -77,23 +79,21 @@ pub fn update_active_window(app: &mut Application) {
             &win as *const u64 as *mut u8,
             1,
         );
-    } else {
-        if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
-            .clients
-            .is_empty()
-        {
-            set_input_focus(
-                app.core.display,
-                app.core.root_win,
-                RevertToPointerRoot,
-                CurrentTime,
-            );
-            delete_property(
-                app.core.display,
-                app.core.root_win,
-                app.atoms.net_active_window,
-            );
-        }
+    } else if ws.screens[ws.current_screen].workspaces[ws.current_workspace]
+        .clients
+        .is_empty()
+    {
+        set_input_focus(
+            app.core.display,
+            app.core.root_win,
+            RevertToPointerRoot,
+            CurrentTime,
+        );
+        delete_property(
+            app.core.display,
+            app.core.root_win,
+            app.atoms.net_active_window,
+        );
     }
 }
 
@@ -116,29 +116,30 @@ pub fn find_window_indexes(app: &mut Application, win: u64) -> Option<(usize, us
 pub fn get_atom_prop(app: &mut Application, win: u64, prop: Atom) -> Atom {
     let mut dummy_atom: u64 = 0;
     let mut dummy_int: i32 = 0;
-    let mut dummy_long: u64 = 0;
-    let mut property_return: *mut u8 = std::ptr::null_mut::<u8>();
+    let mut dummy_long1: u64 = 0;
+    let mut dummy_long2: u64 = 0;
+    let mut property_return: *mut u8 = &mut 0;
     let mut atom: u64 = 0;
-    unsafe {
-        if x11::xlib::XGetWindowProperty(
-            app.core.display,
-            win,
-            prop,
-            0,
-            size_of::<Atom>() as i64,
-            0,
-            XA_ATOM,
-            &mut dummy_atom as *mut u64,
-            &mut dummy_int as *mut i32,
-            &mut dummy_long as *mut u64,
-            &mut dummy_long as *mut u64,
-            &mut property_return as *mut *mut u8,
-        ) == Success as i32
-            && property_return as usize != 0
-        {
-            atom = *(property_return as *mut Atom);
-            x11::xlib::XFree(property_return as *mut libc::c_void);
-        }
+    if get_window_property(
+        app.core.display,
+        win,
+        prop,
+        0,
+        size_of::<Atom>() as i64,
+        false,
+        XA_ATOM,
+        &mut dummy_atom,
+        &mut dummy_int,
+        &mut dummy_long1,
+        &mut dummy_long2,
+        &mut property_return,
+    ) == Success as i32
+        && property_return as *mut u8 as usize != 0
+    {
+        unsafe {
+            atom = *(property_return as *mut u8 as *mut Atom);
+            x11::xlib::XFree(property_return as *mut u8 as *mut libc::c_void)
+        };
     }
     atom
 }
@@ -255,10 +256,10 @@ pub fn show_workspace(app: &mut Application, screen: usize, workspace: usize) {
             move_resize_window(
                 app.core.display,
                 client.window_id,
-                client.x + screen.x as i32,
-                client.y + screen.y as i32,
-                // client.x,
-                // client.y,
+                // client.x + screen.x as i32,
+                // client.y + screen.y as i32,
+                client.x,
+                client.y,
                 client.w,
                 client.h,
             );
@@ -280,8 +281,8 @@ pub fn hide_workspace(app: &mut Application, screen: usize, workspace: usize) {
         move_resize_window(
             app.core.display,
             client.window_id,
-            -(client.w as i32 + window_decoration_offset as i32),
-            -(client.h as i32 + window_decoration_offset as i32),
+            -(2 * client.w as i32 + window_decoration_offset as i32),
+            0,
             client.w,
             client.h,
         );
@@ -334,8 +335,8 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
     {
         // 6. Show maximized clients
         if stack_size == 1 {
-            client.x = 0;
-            client.y = bar_offsets.up as i32;
+            client.x = screen.x as i32;
+            client.y = screen.y as i32 + bar_offsets.up as i32;
             client.w = screen.width as u32;
             client.h = screen_height as u32;
             client.border = 0;
@@ -344,22 +345,36 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
                 // 7. Show master clients
                 let win_height =
                     (screen_height - gap as i64 - master_capacity * gap as i64) / master_capacity;
-                client.x = gap;
-                client.y = bar_offsets.up as i32 + gap + (win_height as i32 + gap) * index as i32;
+                client.x = gap + screen.x as i32;
+                client.y = bar_offsets.up as i32
+                    + gap
+                    + (win_height as i32 + gap) * index as i32
+                    + screen.y as i32;
                 client.w = master_width - 2 * border;
-                client.h = win_height as u32 - 2 * border
+                client.h = if index as i64 != master_capacity - 1 {
+                    win_height as u32 - 2 * border
+                } else {
+                    (screen_height as i32 - gap - client.y + bar_offsets.up as i32) as u32
+                        - 2 * border
+                };
             } else {
                 // 8. Show stack clients
                 let win_height = (screen_height
                     - gap as i64
                     - (stack_size as i64 - master_capacity) * gap as i64)
                     / (stack_size as i64 - master_capacity);
-                client.x = master_width as i32 + (gap * 2);
+                client.x = master_width as i32 + (gap * 2) + screen.x as i32;
                 client.y = bar_offsets.up as i32
                     + gap
-                    + (win_height as i32 + gap) * (index as i64 - master_capacity) as i32;
+                    + (win_height as i32 + gap) * (index as i64 - master_capacity) as i32
+                    + screen.y as i32;
                 client.w = stack_width as u32 - 2 * border;
-                client.h = win_height as u32 - 2 * border;
+                client.h = if index != stack_size - 1 {
+                    win_height as u32 - 2 * border
+                } else {
+                    (screen_height as i32 - gap - client.y + bar_offsets.up as i32) as u32
+                        - 2 * border
+                };
             }
             client.border = app.config.border_size as u32;
         }
@@ -405,57 +420,55 @@ pub fn spawn<S: AsRef<CStr>>(app: &mut Application, args: &[S], rule: Option<(us
 }
 
 pub fn get_client_pid(app: &mut Application, win: u64) -> Option<i32> {
-    unsafe {
-        let mut actual_type: Atom = 0;
-        let mut actual_format: i32 = 0;
-        let mut nitems: u64 = 0;
-        let mut bytes_after: u64 = 0;
-        let mut prop: *mut u8 = std::ptr::null_mut();
-        XGetWindowProperty(
-            app.core.display,
-            win,
-            app.atoms.net_wm_pid,
-            0,
-            size_of::<Atom>() as i64,
-            0,
-            XA_CARDINAL,
-            &mut actual_type as *mut Atom,
-            &mut actual_format as *mut i32,
-            &mut nitems as *mut u64,
-            &mut bytes_after as *mut u64,
-            &mut prop as *mut *mut u8,
-        );
-        if actual_type != 0 {
-            Some(*prop as i32 + *prop.wrapping_add(1) as i32 * 256)
-        } else {
-            None
-        }
+    let mut actual_type: Atom = 0;
+    let mut actual_format: i32 = 0;
+    let mut nitems: u64 = 0;
+    let mut bytes_after: u64 = 0;
+    let mut prop: *mut u8 = &mut 0;
+    get_window_property(
+        app.core.display,
+        win,
+        app.atoms.net_wm_pid,
+        0,
+        size_of::<Atom>() as i64,
+        false,
+        XA_CARDINAL,
+        &mut actual_type,
+        &mut actual_format,
+        &mut nitems,
+        &mut bytes_after,
+        &mut prop,
+    );
+    if actual_type != 0 {
+        unsafe { Some(*prop as i32 + *(prop.wrapping_add(1)) as i32 * 256) }
+    } else {
+        None
     }
 }
 
 pub fn get_client_workspace(app: &mut Application, win: u64) -> Option<(usize, usize)> {
-    let client_desktop = unsafe {
+    let client_desktop = {
         let mut actual_type: Atom = 0;
         let mut actual_format: i32 = 0;
         let mut nitems: u64 = 0;
         let mut bytes_after: u64 = 0;
-        let mut prop: *mut u8 = std::ptr::null_mut();
-        XGetWindowProperty(
+        let mut prop: *mut u8 = &mut 0;
+        get_window_property(
             app.core.display,
             win,
             app.atoms.net_wm_desktop,
             0,
             size_of::<Atom>() as i64,
-            0,
+            false,
             XA_CARDINAL,
-            &mut actual_type as *mut Atom,
-            &mut actual_format as *mut i32,
-            &mut nitems as *mut u64,
-            &mut bytes_after as *mut u64,
-            &mut prop as *mut *mut u8,
+            &mut actual_type,
+            &mut actual_format,
+            &mut nitems,
+            &mut bytes_after,
+            &mut prop,
         );
         if actual_type != 0 {
-            Some(*prop as u64)
+            unsafe { Some(*prop as u64) }
         } else {
             None
         }
@@ -544,126 +557,13 @@ pub fn configure(dpy: &mut x11::xlib::Display, client: &mut Client) {
     );
 }
 
-pub fn get_window_placement(app: &mut Application, win: u64, scan: bool) -> ((usize, usize), u64) {
-    let default_placement = (app.runtime.current_screen, app.runtime.current_workspace);
-
-    let mut trans = 0;
-
-    // Try to inherit parents' position
-    if get_transient_for_hint(app.core.display, win, &mut trans) == 1
-        && find_window_indexes(app, trans).is_some()
-    {
-        return (
-            if let Some((s, w, _c)) = find_window_indexes(app, trans) {
-                (s, w)
-            } else {
-                default_placement
-            },
-            trans,
-        );
-    }
-
-    // Try to use previous position on startup
-    if scan {
-        if let Some(sw) = get_client_workspace(app, win) {
-            return (sw, 0);
-        };
-    }
-
-    // Try loading from autostart rules
-    if let Some(pid) = get_client_pid(app, win) {
-        if let Some(ri) = app
-            .runtime
-            .autostart_rules
-            .iter()
-            .position(|r| r.pid == pid)
-        {
-            let rule = &app.runtime.autostart_rules[ri];
-            eprintln!("{:?}", rule);
-            if rule.screen < app.runtime.screens.len()
-                && rule.workspace < app.runtime.screens[rule.screen].workspaces.len()
-            {
-                return ((rule.screen, rule.workspace), 0);
-            }
-        };
-    }
-
-    // Try permanent rules
-    let title = match get_text_property(app.core.display, win, app.atoms.net_wm_name) {
-        Some(name) => Some(name),
-        None => None,
-    };
-
-    let (instance, class) = unsafe {
-        let mut ch: XClassHint = XClassHint {
-            res_name: std::ptr::null_mut(),
-            res_class: std::ptr::null_mut(),
-        };
-        x11::xlib::XGetClassHint(app.core.display, win, &mut ch as *mut XClassHint);
-
-        let instance = if ch.res_name != std::ptr::null_mut() {
-            match std::ffi::CStr::from_ptr(ch.res_name as *const i8).to_string_lossy() {
-                std::borrow::Cow::Borrowed(s) => Some(s.to_string()),
-                std::borrow::Cow::Owned(s) => Some(s),
-            }
-        } else {
-            None
-        };
-
-        let class = if ch.res_class != std::ptr::null_mut() {
-            match std::ffi::CStr::from_ptr(ch.res_class as *const i8).to_string_lossy() {
-                std::borrow::Cow::Borrowed(s) => Some(s.to_string()),
-                std::borrow::Cow::Owned(s) => Some(s),
-            }
-        } else {
-            None
-        };
-
-        (instance, class)
-    };
-
-    for rule in &app.config.placements {
-        let instance_flag = {
-            if let (Some(rule_instance), Some(client_instance)) = (&rule.instance, &instance) {
-                *rule_instance == *client_instance
-            } else {
-                rule.instance.is_none()
-            }
-        };
-        let class_flag = {
-            if let (Some(rule_class), Some(client_class)) = (&rule.class, &class) {
-                *rule_class == *client_class
-            } else {
-                rule.class.is_none()
-            }
-        };
-        let title_flag = {
-            if let (Some(rule_title), Some(client_title)) = (&rule.title, &title) {
-                *rule_title == *client_title
-            } else {
-                rule.title.is_none()
-            }
-        };
-        if instance_flag && class_flag && title_flag {
-            let s = if let Some(s) = rule.rule_screen {
-                s
-            } else {
-                app.runtime.current_screen
-            };
-            let w = if let Some(w) = rule.rule_workspace {
-                w
-            } else {
-                app.runtime.current_workspace
-            };
-            return ((s, w), 0);
-        }
-    }
-
-    // Use current placement if nothing found;
-    return (default_placement, 0);
-}
-
 pub fn set_urgent(app: &mut Application, win: u64, urg: bool) {
+    log!("|- Setting urgency to {urg} for {win}");
+
+    if let Some((s, w, c)) = find_window_indexes(app, win) {
+        app.runtime.screens[s].workspaces[w].clients[c].urgent = urg;
+    }
+
     unsafe {
         let wmh = x11::xlib::XGetWMHints(app.core.display, win);
         if wmh != std::ptr::null_mut() {

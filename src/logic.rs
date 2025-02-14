@@ -2,6 +2,7 @@
 
 use std::process::exit;
 
+use crate::config;
 use crate::config::NUMBER_OF_DESKTOPS;
 use crate::helper::*;
 use crate::structs::*;
@@ -106,7 +107,7 @@ pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
         };
 
         // Pop client
-        let client = app.runtime.screens[app.runtime.current_screen].workspaces
+        let mut client = app.runtime.screens[app.runtime.current_screen].workspaces
             [app.runtime.current_workspace]
             .clients
             .remove(index);
@@ -122,15 +123,15 @@ pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
         update_client_desktop(app, client.window_id, new_workspace as u64);
 
         // For floating windows change positions
-        // if client.floating {
-        //     let cur_screen = &app.runtime.screens[app.runtime.current_screen];
-        //     let rel_x = client.x - cur_screen.x as i32;
-        //     let rel_y = client.y - cur_screen.y as i32;
-        //
-        //     let new_screen = &app.runtime.screens[new_screen_index];
-        //     client.x = new_screen.x as i32 + rel_x;
-        //     client.y = new_screen.y as i32 + rel_y;
-        // }
+        if client.floating {
+            let cur_screen = &app.runtime.screens[app.runtime.current_screen];
+            let rel_x = client.x - cur_screen.x as i32;
+            let rel_y = client.y - cur_screen.y as i32;
+
+            let new_screen = &app.runtime.screens[new_screen_index];
+            client.x = new_screen.x as i32 + rel_x;
+            client.y = new_screen.y as i32 + rel_y;
+        }
 
         // Update client tracker on current screen
         shift_current_client(app, None, None);
@@ -231,7 +232,8 @@ pub fn move_to_workspace(app: &mut Application, n: u64) {
                 cc.window_id,
                 argb_to_int(app.config.normal_border_color),
             );
-            let cur_workspace: usize = n as usize + app.runtime.current_screen * 10;
+            let cur_workspace: usize =
+                n as usize + app.runtime.current_screen * config::NUMBER_OF_DESKTOPS;
 
             update_client_desktop(app, cc.window_id, cur_workspace as u64);
 
@@ -273,12 +275,7 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
     log!("   |- Got `FocusOnWorkspace` Action");
     // Check is focusing on another workspace
     if n as usize != app.runtime.current_workspace {
-        // Hide current workspace
-        hide_workspace(
-            app,
-            app.runtime.current_screen,
-            app.runtime.current_workspace,
-        );
+        let pw = app.runtime.current_workspace;
         // unfocus current win
         if let Some(cw) = get_current_client_id(app) {
             set_window_border(
@@ -292,7 +289,7 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
         app.runtime.current_workspace = n as usize;
         app.runtime.screens[app.runtime.current_screen].current_workspace = n as usize;
 
-        let w = n + app.runtime.current_screen as u64 * 10;
+        let w = n + app.runtime.current_screen as u64 * config::NUMBER_OF_DESKTOPS as u64;
 
         change_property(
             app.core.display,
@@ -318,12 +315,13 @@ pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
             app.runtime.current_screen,
             app.runtime.current_workspace,
         );
+        // Hide current workspace
+        hide_workspace(app, app.runtime.current_screen, pw);
     }
 }
 
 pub fn update_master_width(app: &mut Application, w: f64) {
     // Update master width
-
     let mw = &mut app.runtime.screens[app.runtime.current_screen].workspaces
         [app.runtime.current_workspace]
         .master_width;
@@ -574,4 +572,111 @@ pub fn update_desktops(app: &mut Application) {
     }
     // 4. SEt info
     update_desktop_ewmh_info(app, desktop_names_ewmh, viewports);
+}
+
+pub fn get_window_placement(app: &mut Application, win: u64, scan: bool) -> ((usize, usize), u64) {
+    let default_placement = (app.runtime.current_screen, app.runtime.current_workspace);
+
+    let mut trans = 0;
+
+    // Try to inherit parents' position
+    if get_transient_for_hint(app.core.display, win, &mut trans) == 1
+        && find_window_indexes(app, trans).is_some()
+    {
+        log!("==== Inherit parents position");
+        return (
+            if let Some((s, w, _c)) = find_window_indexes(app, trans) {
+                (s, w)
+            } else {
+                default_placement
+            },
+            trans,
+        );
+    }
+
+    // Try to use previous position on startup
+    if scan {
+        if let Some(sw) = get_client_workspace(app, win) {
+            log!("==== Fetched startup position");
+            return (sw, 0);
+        };
+    }
+
+    // Try loading from autostart rules
+    if let Some(pid) = get_client_pid(app, win) {
+        log!("==== PID for {win} is {pid}");
+        if let Some(ri) = app
+            .runtime
+            .autostart_rules
+            .iter()
+            .position(|r| r.pid == pid)
+        {
+            let rule = &app.runtime.autostart_rules[ri];
+            log!("==== Fetched autostart position");
+            if rule.screen < app.runtime.screens.len()
+                && rule.workspace < app.runtime.screens[rule.screen].workspaces.len()
+            {
+                return ((rule.screen, rule.workspace), 0);
+            }
+        };
+    }
+
+    // Try permanent rules
+    let title = match get_text_property(app.core.display, win, app.atoms.net_wm_name) {
+        Some(name) => Some(name),
+        None => None,
+    };
+
+    let (instance, class) = {
+        let mut ch: x11::xlib::XClassHint = x11::xlib::XClassHint {
+            res_name: std::ptr::null_mut(),
+            res_class: std::ptr::null_mut(),
+        };
+        get_class_hint(app.core.display, win, &mut ch);
+
+        let instance = cstr_to_string(ch.res_name as *const i8);
+        let class = cstr_to_string(ch.res_class as *const i8);
+
+        (instance, class)
+    };
+
+    for rule in &app.config.placements {
+        let instance_flag = {
+            if let (Some(rule_instance), Some(client_instance)) = (&rule.instance, &instance) {
+                *rule_instance == *client_instance
+            } else {
+                rule.instance.is_none()
+            }
+        };
+        let class_flag = {
+            if let (Some(rule_class), Some(client_class)) = (&rule.class, &class) {
+                *rule_class == *client_class
+            } else {
+                rule.class.is_none()
+            }
+        };
+        let title_flag = {
+            if let (Some(rule_title), Some(client_title)) = (&rule.title, &title) {
+                *rule_title == *client_title
+            } else {
+                rule.title.is_none()
+            }
+        };
+        if instance_flag && class_flag && title_flag {
+            let s = if let Some(s) = rule.rule_screen {
+                s
+            } else {
+                app.runtime.current_screen
+            };
+            let w = if let Some(w) = rule.rule_workspace {
+                w
+            } else {
+                app.runtime.current_workspace
+            };
+            return ((s, w), 0);
+        }
+    }
+
+    // Use current placement if nothing found;
+    return (default_placement, 0);
 }

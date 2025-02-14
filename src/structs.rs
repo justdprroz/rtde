@@ -185,6 +185,8 @@ pub struct Client {
     pub h: u32,
     pub ow: u32,
     pub oh: u32,
+    pub ox: i32,
+    pub oy: i32,
     pub border: u32,
     // Flags
     pub visible: bool,
