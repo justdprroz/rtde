@@ -107,7 +107,7 @@ pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
         };
 
         // Pop client
-        let client = app.runtime.screens[app.runtime.current_screen].workspaces
+        let mut client = app.runtime.screens[app.runtime.current_screen].workspaces
             [app.runtime.current_workspace]
             .clients
             .remove(index);
@@ -123,15 +123,15 @@ pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
         update_client_desktop(app, client.window_id, new_workspace as u64);
 
         // For floating windows change positions
-        // if client.floating {
-        //     let cur_screen = &app.runtime.screens[app.runtime.current_screen];
-        //     let rel_x = client.x - cur_screen.x as i32;
-        //     let rel_y = client.y - cur_screen.y as i32;
-        //
-        //     let new_screen = &app.runtime.screens[new_screen_index];
-        //     client.x = new_screen.x as i32 + rel_x;
-        //     client.y = new_screen.y as i32 + rel_y;
-        // }
+        if client.floating {
+            let cur_screen = &app.runtime.screens[app.runtime.current_screen];
+            let rel_x = client.x - cur_screen.x as i32;
+            let rel_y = client.y - cur_screen.y as i32;
+
+            let new_screen = &app.runtime.screens[new_screen_index];
+            client.x = new_screen.x as i32 + rel_x;
+            client.y = new_screen.y as i32 + rel_y;
+        }
 
         // Update client tracker on current screen
         shift_current_client(app, None, None);

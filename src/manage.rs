@@ -130,14 +130,22 @@ pub fn manage_client(app: &mut Application, win: u64, scan: bool) {
         unfocus(app, cw);
     }
 
+    let screen = &app.runtime.screens[client_screen];
     if c.floating {
-        let screen = &app.runtime.screens[client_screen];
         if c.x > screen.width as i32 {
             c.x = c.x % screen.x as i32;
         }
         if c.y > screen.height as i32 {
             c.y = c.y % screen.y as i32;
         }
+    }
+
+    if c.x < screen.x as i32 {
+        c.x = screen.x as i32;
+    }
+
+    if c.y < screen.y as i32 {
+        c.y = screen.y as i32;
     }
 
     let workspace = &mut app.runtime.screens[client_screen].workspaces[client_workspace];

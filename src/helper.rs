@@ -256,10 +256,10 @@ pub fn show_workspace(app: &mut Application, screen: usize, workspace: usize) {
             move_resize_window(
                 app.core.display,
                 client.window_id,
-                client.x + screen.x as i32,
-                client.y + screen.y as i32,
-                // client.x,
-                // client.y,
+                // client.x + screen.x as i32,
+                // client.y + screen.y as i32,
+                client.x,
+                client.y,
                 client.w,
                 client.h,
             );
@@ -335,8 +335,8 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
     {
         // 6. Show maximized clients
         if stack_size == 1 {
-            client.x = 0;
-            client.y = bar_offsets.up as i32;
+            client.x = screen.x as i32;
+            client.y = screen.y as i32 + bar_offsets.up as i32;
             client.w = screen.width as u32;
             client.h = screen_height as u32;
             client.border = 0;
@@ -345,22 +345,36 @@ pub fn arrange_workspace(app: &mut Application, screen: usize, workspace: usize)
                 // 7. Show master clients
                 let win_height =
                     (screen_height - gap as i64 - master_capacity * gap as i64) / master_capacity;
-                client.x = gap;
-                client.y = bar_offsets.up as i32 + gap + (win_height as i32 + gap) * index as i32;
+                client.x = gap + screen.x as i32;
+                client.y = bar_offsets.up as i32
+                    + gap
+                    + (win_height as i32 + gap) * index as i32
+                    + screen.y as i32;
                 client.w = master_width - 2 * border;
-                client.h = win_height as u32 - 2 * border
+                client.h = if index as i64 != master_capacity - 1 {
+                    win_height as u32 - 2 * border
+                } else {
+                    (screen_height as i32 - gap - client.y + bar_offsets.up as i32) as u32
+                        - 2 * border
+                };
             } else {
                 // 8. Show stack clients
                 let win_height = (screen_height
                     - gap as i64
                     - (stack_size as i64 - master_capacity) * gap as i64)
                     / (stack_size as i64 - master_capacity);
-                client.x = master_width as i32 + (gap * 2);
+                client.x = master_width as i32 + (gap * 2) + screen.x as i32;
                 client.y = bar_offsets.up as i32
                     + gap
-                    + (win_height as i32 + gap) * (index as i64 - master_capacity) as i32;
+                    + (win_height as i32 + gap) * (index as i64 - master_capacity) as i32
+                    + screen.y as i32;
                 client.w = stack_width as u32 - 2 * border;
-                client.h = win_height as u32 - 2 * border;
+                client.h = if index != stack_size - 1 {
+                    win_height as u32 - 2 * border
+                } else {
+                    (screen_height as i32 - gap - client.y + bar_offsets.up as i32) as u32
+                        - 2 * border
+                };
             }
             client.border = app.config.border_size as u32;
         }
@@ -545,6 +559,11 @@ pub fn configure(dpy: &mut x11::xlib::Display, client: &mut Client) {
 
 pub fn set_urgent(app: &mut Application, win: u64, urg: bool) {
     log!("|- Setting urgency to {urg} for {win}");
+
+    if let Some((s, w, c)) = find_window_indexes(app, win) {
+        app.runtime.screens[s].workspaces[w].clients[c].urgent = urg;
+    }
+
     unsafe {
         let wmh = x11::xlib::XGetWMHints(app.core.display, win);
         if wmh != std::ptr::null_mut() {
