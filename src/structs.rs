@@ -56,6 +56,7 @@ pub enum ActionResult {
     MoveToWorkspace(u64),
     FocusOnWorkspace(u64),
     CycleStack(i64),
+    PopPushStack,
     ToggleFloat,
     DumpInfo,
     Quit,

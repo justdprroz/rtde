@@ -476,8 +476,8 @@ pub fn get_client_workspace(app: &mut Application, win: u64) -> Option<(usize, u
 
     match client_desktop {
         Some(d) => {
-            let s = d as usize / 10;
-            let w = d as usize % 10;
+            let s = d as usize / config::NUMBER_OF_DESKTOPS;
+            let w = d as usize % config::NUMBER_OF_DESKTOPS;
             if s < app.runtime.screens.len() && w < app.runtime.screens[s].workspaces.len() {
                 Some((s, w))
             } else {

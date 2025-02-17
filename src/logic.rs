@@ -10,6 +10,7 @@ use crate::utils::*;
 use crate::wrapper::xinerama::xinerama_query_screens;
 use crate::wrapper::xlib::*;
 
+use x11::xinerama::XineramaScreenInfo;
 use x11::xlib::AnyButton;
 use x11::xlib::AnyModifier;
 use x11::xlib::Button1;
@@ -20,7 +21,6 @@ use x11::xlib::Mod4Mask as ModKey;
 use x11::xlib::PropModeReplace;
 use x11::xlib::RevertToPointerRoot;
 use x11::xlib::XA_CARDINAL;
-
 /// Shifts current client tracker after destroying clients
 pub fn shift_current_client(
     app: &mut Application,
@@ -118,8 +118,8 @@ pub fn move_to_screen(app: &mut Application, d: ScreenSwitching) {
         );
 
         // Update workspace
-        let new_workspace: usize =
-            app.runtime.screens[new_screen_index].current_workspace + new_screen_index * 10;
+        let new_workspace: usize = app.runtime.screens[new_screen_index].current_workspace
+            + new_screen_index * config::NUMBER_OF_DESKTOPS;
         update_client_desktop(app, client.window_id, new_workspace as u64);
 
         // For floating windows change positions
@@ -190,7 +190,8 @@ pub fn focus_on_screen_index(app: &mut Application, n: usize) {
             argb_to_int(app.config.active_border_color),
         );
     }
-    let w: u64 = n as u64 * 10 + app.runtime.screens[n].current_workspace as u64;
+    let w: u64 = n as u64 * config::NUMBER_OF_DESKTOPS as u64
+        + app.runtime.screens[n].current_workspace as u64;
     change_property(
         app.core.display,
         app.core.root_win,
@@ -219,9 +220,9 @@ pub fn focus_on_screen(app: &mut Application, d: ScreenSwitching) {
 pub fn move_to_workspace(app: &mut Application, n: u64) {
     log!("   |- Got `MoveToWorkspace` Action ");
     // Check if moving to another workspace
-    if n as usize != app.runtime.current_workspace {
-        // Check if any client is selected
-        if let Some(index) = app.runtime.current_client {
+    if let Some(index) = app.runtime.current_client {
+        if n as usize != app.runtime.current_workspace {
+            // Check if any client is selected
             // Pop current client
             let mut cc = app.runtime.screens[app.runtime.current_screen].workspaces
                 [app.runtime.current_workspace]
@@ -261,14 +262,31 @@ pub fn move_to_workspace(app: &mut Application, n: u64) {
                 .clients
                 .push(cc);
             arrange_workspace(app, app.runtime.current_screen, n as usize);
+        } else {
+            let cc = app.runtime.screens[app.runtime.current_screen].workspaces
+                [app.runtime.current_workspace]
+                .clients
+                .remove(index);
+            app.runtime.screens[app.runtime.current_screen].workspaces[n as usize]
+                .clients
+                .push(cc);
+            arrange_current(app);
+            show_workspace(
+                app,
+                app.runtime.current_screen,
+                app.runtime.current_workspace,
+            );
+            app.runtime.screens[app.runtime.current_screen].workspaces[n as usize].current_client =
+                Some(0);
+            app.runtime.current_client = Some(0);
         }
     }
 }
 
 pub fn focus_on_workspace(app: &mut Application, n: u64, r: bool) {
     let n = if !r {
-        focus_on_screen_index(app, n as usize / 10);
-        n % 10
+        focus_on_screen_index(app, n as usize / config::NUMBER_OF_DESKTOPS);
+        n % config::NUMBER_OF_DESKTOPS as u64
     } else {
         n
     };
@@ -415,7 +433,7 @@ pub fn focus(app: &mut Application, win: u64) {
     grab_button(app.core.display, win, Button1, ModKey);
     grab_button(app.core.display, win, Button3, ModKey);
 
-    let w = app.runtime.current_workspace + app.runtime.current_screen * 10;
+    let w = app.runtime.current_workspace + app.runtime.current_screen * NUMBER_OF_DESKTOPS;
 
     change_property(
         app.core.display,
@@ -492,6 +510,22 @@ pub fn update_screens(app: &mut Application) {
             exit(1);
         }
     };
+
+    let screens = {
+        let mut tmp: Vec<XineramaScreenInfo> = vec![];
+        for screen in screens {
+            if tmp
+                .iter()
+                .filter(|ts| ts.x_org == screen.x_org && ts.y_org == screen.y_org)
+                .count()
+                == 0
+            {
+                tmp.push(screen);
+            }
+        }
+        tmp
+    };
+
     let screens_amount = screens.len();
 
     // 2. Add new screens

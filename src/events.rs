@@ -78,6 +78,9 @@ pub fn key_press(app: &mut Application, key_event: XKeyEvent) {
                     toggle_float(app);
                 }
                 ActionResult::CycleStack(_i) => {}
+                ActionResult::PopPushStack => {
+                    move_to_workspace(app, app.runtime.current_workspace as u64);
+                }
             }
         }
     }
@@ -176,6 +179,7 @@ pub fn configure_notify(app: &mut Application, configure_event: XConfigureEvent)
     if configure_event.window == app.core.root_win {
         log!("|- Got `ConfigureNotify` for `root window` -> Changing monitor layout");
         update_screens(app);
+        update_desktops(app);
     } else if let Some((s, w, c)) = find_window_indexes(app, configure_event.window) {
         let client = &app.runtime.screens[s].workspaces[w].clients[c];
         log!(

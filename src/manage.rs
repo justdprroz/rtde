@@ -11,6 +11,7 @@ use x11::xlib::SubstructureNotifyMask;
 use x11::xlib::XWindowAttributes;
 use x11::xlib::XA_WINDOW;
 
+use crate::config;
 use crate::helper::*;
 use crate::logic::*;
 use crate::structs::*;
@@ -166,7 +167,7 @@ pub fn manage_client(app: &mut Application, win: u64, scan: bool) {
         &win as *const u64 as *mut u8,
         1,
     );
-    let cur_workspace: usize = client_workspace + client_screen * 10;
+    let cur_workspace: usize = client_workspace + client_screen * config::NUMBER_OF_DESKTOPS;
     update_client_desktop(app, win, cur_workspace as u64);
 
     // 14. Configure window
